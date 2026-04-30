@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ivannikolovbg/repull-mcp",
+  "description": "Read-mostly access to vacation-rental reservations, properties, and Airbnb listings via the Repull API. One API key fans out to 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide).",
+  "repository": {
+    "url": "https://github.com/ivannikolovbg/repull-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "websiteUrl": "https://repull.dev",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@repull/mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "REPULL_API_KEY",
+          "description": "Your Repull API key (sk_test_... or sk_live_...). Get one at https://repull.dev/dashboard.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "REPULL_API_BASE_URL",
+          "description": "Optional override for the API base URL. Defaults to https://api.repull.dev.",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

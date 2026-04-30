@@ -1,0 +1,10 @@
+src/
+node_modules/
+.github/
+.gitignore
+tsconfig.json
+*.tsbuildinfo
+.env*
+docs/
+examples/
+server.json

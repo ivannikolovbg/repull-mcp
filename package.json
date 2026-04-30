@@ -1,0 +1,62 @@
+{
+  "name": "@repull/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol (MCP) server for the Repull API — gives LLMs read access to reservations, properties, and Airbnb listings across 50+ PMS platforms via a single API.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "repull-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "repull",
+    "claude",
+    "anthropic",
+    "vacation-rental",
+    "airbnb",
+    "booking",
+    "vrbo",
+    "channel-manager",
+    "pms",
+    "hospitality"
+  ],
+  "homepage": "https://repull.dev",
+  "bugs": {
+    "url": "https://github.com/ivannikolovbg/repull-mcp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ivannikolovbg/repull-mcp.git"
+  },
+  "author": "Vanio AI <ivan@vanio.ai>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "mcpName": "io.github.ivannikolovbg/repull-mcp"
+}
