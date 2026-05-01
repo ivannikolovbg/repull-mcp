@@ -54,7 +54,7 @@
     "type": "git",
     "url": "https://github.com/ivannikolovbg/repull-mcp.git"
   },
-  "author": "Divanova Inc. <ivan@vanio.ai>",
+  "author": "Divanova Inc. <hello@repull.dev>",
   "publishConfig": {
     "access": "public"
   },
