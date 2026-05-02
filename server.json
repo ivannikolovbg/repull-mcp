@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ivannikolovbg/repull-mcp",
-  "description": "Read-mostly access to vacation-rental reservations, properties, and Airbnb listings via the Repull API. One API key fans out to 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide).",
+  "description": "Agent-friendly MCP for the Repull API — read-mostly access to reservations, properties, listings, guests, and conversations across 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide). Ships with built-in OpenAPI + docs discovery, a `whoami` introspection tool, cursor pagination, idempotency-key support on writes, and verbatim error envelopes (code, fix, docs_url) so agents can self-correct without escalating to a human.",
   "repository": {
     "url": "https://github.com/ivannikolovbg/repull-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "websiteUrl": "https://repull.dev",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@repull/mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
