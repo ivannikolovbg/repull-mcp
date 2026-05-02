@@ -1,7 +1,7 @@
 {
   "name": "@repull/mcp",
-  "version": "0.1.0",
-  "description": "Model Context Protocol (MCP) server for the Repull API — gives LLMs read access to reservations, properties, and Airbnb listings across 50+ PMS platforms via a single API.",
+  "version": "0.2.0",
+  "description": "Model Context Protocol (MCP) server for the Repull API — agent-friendly access to reservations, properties, listings, guests, and conversations across 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide). Includes built-in discovery, docs, whoami, cursor pagination, idempotency keys, and full error envelopes (code/fix/docs_url) so AI agents can self-correct without escalating to a human.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
