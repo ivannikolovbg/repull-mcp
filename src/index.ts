@@ -23,9 +23,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createRepullClient, RepullApiError, type RepullClient } from "./client.js";
+import { registerStudioTools } from "./studio.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.0";
+const PACKAGE_VERSION = "0.2.1";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -45,7 +46,13 @@ function getApiKey(): string {
 }
 
 function getBaseUrl(): string {
-  return process.env.REPULL_API_BASE_URL ?? "https://api.repull.dev";
+  // `REPULL_API_URL` is the canonical name across the Repull SDK ecosystem;
+  // `REPULL_API_BASE_URL` is the legacy name kept for backwards compatibility.
+  return (
+    process.env.REPULL_API_URL ??
+    process.env.REPULL_API_BASE_URL ??
+    "https://api.repull.dev"
+  );
 }
 
 type JsonValue =
@@ -180,12 +187,13 @@ async function main(): Promise<void> {
   registerIntrospectionTools(server, client);
   registerReadTools(server, client);
   registerConnectTools(server, client);
+  registerStudioTools(server, client, { errorFormat: errorText });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
   process.stderr.write(
-    `[${PACKAGE_NAME}] connected (base=${baseUrl}). 18 tools registered.\n`
+    `[${PACKAGE_NAME}] connected (base=${baseUrl}). 24 tools registered.\n`
   );
 }
 
