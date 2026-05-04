@@ -156,7 +156,20 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 | `repull_create_connect_session` | `POST /v1/connect/{provider}` | Start a Connect flow for one provider. Airbnb returns a hosted `oauthUrl`. PMS providers accept API-key credentials in the body. Accepts `idempotency_key`. |
 | `repull_create_connect_picker_session` | `POST /v1/connect` | Start a multi-channel picker session. Returns a hosted URL with a UI listing every connectable channel. Accepts `idempotency_key`. |
 
-**Total: 18 tools.**
+### Studio
+
+Drive Repull Studio (no-code project / generate / deploy) end-to-end from the agent. Tools target the dominator API at `REPULL_API_URL` and use the standard `REPULL_API_KEY` for auth.
+
+| Tool | Maps to | What it does |
+|---|---|---|
+| `studio_list_projects` | `GET /api/studio/projects` | List Studio projects with optional `q` search and offset pagination. |
+| `studio_create_project` | `POST /api/studio/projects` | Create a new project; pass `prompt` to seed it with a Repull AI generation pass. |
+| `studio_get_project` | `GET /api/studio/projects/{id}` | Fetch one project with status, deployment info, and metadata. |
+| `studio_list_files` | `GET /api/studio/projects/{id}/files` | List every file in the project — paths, sizes, last-modified. |
+| `studio_generate` | `POST /api/studio/generate` | Run a Repull AI generation pass on a project using `prompt`. |
+| `studio_deploy` | `POST /api/studio/deployments` | Deploy the current project state to the Repull deploy fleet. |
+
+**Total: 24 tools.**
 
 ## Sample agent prompts that work well
 
