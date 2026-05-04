@@ -105,6 +105,10 @@ In your `~/.continue/config.json`, add the server under `experimental.modelConte
 
 The server reads `REPULL_API_KEY` from the environment and speaks MCP over stdio. Spawn it with `npx -y @repull/mcp` (or `node /path/to/dist/index.js` if you've cloned the repo).
 
+#### Plugin hosts (Open Plugin Spec)
+
+This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin Specification](https://github.com/vercel-labs/open-plugin-spec) — the same `mcpServers` shape Cursor, Cline, and Continue already understand. Plugin hosts that auto-discover MCP servers from `.mcp.json` will pick this server up automatically; users only need to set `REPULL_API_KEY` in their environment (or via the host's secret-injection mechanism).
+
 ### 3. Optional environment variables
 
 | Variable | Default | Purpose |

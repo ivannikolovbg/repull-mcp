@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "repull": {
+      "command": "npx",
+      "args": ["-y", "@repull/mcp"],
+      "env": {
+        "REPULL_API_KEY": "${REPULL_API_KEY}"
+      }
+    }
+  }
+}
