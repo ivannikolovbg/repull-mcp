@@ -6,13 +6,13 @@
     "url": "https://github.com/ivannikolovbg/repull-mcp",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.3",
   "websiteUrl": "https://repull.dev",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@repull/mcp",
-      "version": "0.2.0",
+      "version": "0.2.3",
       "transport": {
         "type": "stdio"
       },
