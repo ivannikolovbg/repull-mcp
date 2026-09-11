@@ -24,9 +24,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { createRepullClient, RepullApiError, type RepullClient } from "./client.js";
 import { registerStudioTools } from "./studio.js";
+import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.1";
+const PACKAGE_VERSION = "0.2.2";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -326,7 +327,7 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
         "Returns a snapshot of the workspace tied to the current API key: plan info, usage, and the " +
         "list of connected PMS/OTA channels with their status. Call this first when an agent starts " +
         "a session — it tells you what the user has access to (e.g. 'Airbnb is connected, Booking.com " +
-        "is not') so you can avoid suggesting actions that will fail. Combines `GET /v1/billing` and " +
+        "is not') so you can avoid suggesting actions that will fail. Combines `GET /v1/usage/tier` and " +
         "`GET /v1/connect` in a single call. Both sub-calls are best-effort; if either fails the other " +
         "is still returned.",
       inputSchema: {},
@@ -334,19 +335,19 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
     async () => {
       type Result = {
         api_base_url: string;
-        billing?: unknown;
-        billing_error?: unknown;
+        plan?: unknown;
+        plan_error?: unknown;
         connections?: unknown;
         connections_error?: unknown;
       };
       const result: Result = { api_base_url: getBaseUrl() };
       try {
-        result.billing = await client.get("/v1/billing");
+        result.plan = await client.get(TOOL_PATHS.repull_whoami_usage);
       } catch (err) {
-        result.billing_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
+        result.plan_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
       }
       try {
-        result.connections = await client.get("/v1/connect");
+        result.connections = await client.get(TOOL_PATHS.repull_whoami_connect);
       } catch (err) {
         result.connections_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
       }
@@ -366,7 +367,7 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/health"));
+        return jsonText(await client.get(TOOL_PATHS.repull_health_check));
       } catch (err) {
         return errorText(err);
       }
@@ -418,7 +419,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/reservations", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_reservations, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -439,7 +440,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/reservations/${id}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_reservation, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -468,7 +469,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/properties", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_properties, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -488,7 +489,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/properties/${encodeURIComponent(id)}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_property, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -513,7 +514,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/listings", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_listings, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -533,7 +534,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/channels/airbnb/listings"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_airbnb_listings));
       } catch (err) {
         return errorText(err);
       }
@@ -556,7 +557,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/guests", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_guests, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -576,7 +577,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/guests/${encodeURIComponent(id)}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_guest, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -600,7 +601,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/conversations", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_conversations, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -623,7 +624,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     async ({ id, limit, cursor }) => {
       try {
         return jsonText(
-          await client.get(`/v1/conversations/${encodeURIComponent(id)}/messages`, {
+          await client.get(resolvePath(TOOL_PATHS.repull_list_conversation_messages, { id }), {
             query: compact({ limit, cursor }),
           })
         );
@@ -654,7 +655,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/connect"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_connections));
       } catch (err) {
         return errorText(err);
       }
@@ -673,7 +674,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/connect/providers"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_connect_providers));
       } catch (err) {
         return errorText(err);
       }
@@ -737,7 +738,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     async (args) => {
       try {
         const { provider, idempotency_key, ...body } = args;
-        const data = await client.post(`/v1/connect/${provider}`, {
+        const data = await client.post(resolvePath(TOOL_PATHS.repull_create_connect_session, { provider }), {
           body: compact(body as Record<string, unknown>),
           idempotencyKey: idempotency_key,
         });
@@ -774,7 +775,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async ({ idempotency_key, ...body }) => {
       try {
-        const data = await client.post(`/v1/connect`, {
+        const data = await client.post(TOOL_PATHS.repull_create_connect_picker_session, {
           body: compact(body as Record<string, unknown>),
           idempotencyKey: idempotency_key,
         });
