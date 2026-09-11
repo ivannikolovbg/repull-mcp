@@ -2,7 +2,7 @@
 
 **A Model Context Protocol (MCP) server for the [Repull](https://repull.dev) API.** Lets Claude Desktop, Cursor, Cline, Continue, and any other MCP-compatible client read reservations, properties, listings, guests, and conversations across 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide) — through one API key.
 
-> Read-mostly by design. v0.2 exposes read endpoints plus the "start a Connect flow" entry points. Mutating endpoints (cancel, modify, message, push pricing, etc.) are intentionally **not** exposed yet — those will land in a follow-up release with explicit per-tool opt-in, because giving an LLM unconfirmed write access to live bookings is a footgun.
+> Read-mostly by default. Out of the box this server exposes read endpoints plus the "start a Connect flow" entry points — nothing that touches a live booking. Four mutating tools (create/update a reservation, create a guest, send a guest a message) exist but are **off unless you opt in**, one scope at a time, via `REPULL_MCP_ENABLE_WRITES`. See [Write tools (opt-in)](#write-tools-opt-in) below. The rest of the mutating surface (cancel, push pricing, webhooks, etc.) still isn't exposed at all.
 
 ## Why this server is built for agents
 
@@ -12,7 +12,7 @@ The whole point of an MCP server is that the agent on the other side can self-se
 - **Introspection built in.** `repull_whoami` returns the workspace, plan, and connected channels in one call. Agents use this to avoid suggesting actions that will fail (e.g. "this account doesn't have Booking.com connected").
 - **Errors carry the full envelope.** When the API returns `{ error: { code, message, fix, docs_url, field } }`, every tool surfaces all of those fields verbatim. Agents read `fix` and `docs_url` and self-correct instead of bouncing back to the human.
 - **Cursor pagination is explicit.** List tools accept `cursor` and the schema describes how to paginate. We don't auto-paginate, because LLMs do better when they decide when to fetch the next page (cost / context window).
-- **Idempotency keys on writes.** The Connect tools accept an `idempotency_key` parameter that maps to the `Idempotency-Key` header — safe to retry without duplicating sessions.
+- **Idempotency keys on writes.** Every mutating tool — the always-on Connect tools and the opt-in reservation/guest/messaging tools — accepts an `idempotency_key` parameter that maps to the `Idempotency-Key` header — safe to retry without duplicating sessions, bookings, guests, or messages.
 
 ## Setup
 
@@ -115,6 +115,7 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 |---|---|---|
 | `REPULL_API_KEY` | *(required)* | Your Repull API key. |
 | `REPULL_API_BASE_URL` | `https://api.repull.dev` | Override for self-hosted / sandbox / local development. |
+| `REPULL_MCP_ENABLE_WRITES` | *(unset — read-only)* | Comma-separated list of write scopes to enable, e.g. `reservations:create,messaging:send`. See [Write tools (opt-in)](#write-tools-opt-in). |
 
 ## Tools exposed
 
@@ -147,7 +148,9 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 | `repull_list_conversations` | `GET /v1/conversations` | Cursor-paginated list of guest message threads across every channel. |
 | `repull_list_conversation_messages` | `GET /v1/conversations/{id}/messages` | Messages inside a single thread (oldest-first, cursor-paginated). |
 
-### Connect (the only writes in v0.2)
+### Connect (always-on writes)
+
+These kick off OAuth flows or provision sessions — they don't touch a reservation, guest, or message, so they've always been registered regardless of `REPULL_MCP_ENABLE_WRITES`.
 
 | Tool | Maps to | What it does |
 |---|---|---|
@@ -155,6 +158,17 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 | `repull_list_connect_providers` | `GET /v1/connect/providers` | Registry of every channel the user *can* connect — display name, features, required credentials. |
 | `repull_create_connect_session` | `POST /v1/connect/{provider}` | Start a Connect flow for one provider. Airbnb returns a hosted `oauthUrl`. PMS providers accept API-key credentials in the body. Accepts `idempotency_key`. |
 | `repull_create_connect_picker_session` | `POST /v1/connect` | Start a multi-channel picker session. Returns a hosted URL with a UI listing every connectable channel. Accepts `idempotency_key`. |
+
+### Reservations / guests / messaging (opt-in writes)
+
+None of these register unless their scope is listed in `REPULL_MCP_ENABLE_WRITES` — see [Write tools (opt-in)](#write-tools-opt-in) below.
+
+| Tool | Scope | Maps to | What it does |
+|---|---|---|---|
+| `repull_create_reservation` | `reservations:create` | `POST /v1/reservations` | Book a DIRECT/website/owner reservation on one of the workspace's own properties. Priced by the pricing engine, not the request. Accepts `idempotency_key`. |
+| `repull_update_reservation` | `reservations:update` | `PATCH /v1/reservations/{id}` | Change dates, times, guest count, or move a reservation to another property. Accepts `idempotency_key`. |
+| `repull_create_guest` | `guests:create` | `POST /v1/guests` | Create a guest profile, or match an existing one by email/phone/name. Accepts `idempotency_key`. |
+| `repull_send_conversation_message` | `messaging:send` | `POST /v1/conversations/{id}/messages` | Send a message to the guest on an existing thread — reaches a real person. Accepts `idempotency_key`. |
 
 ### Studio
 
@@ -169,7 +183,7 @@ Drive Repull Studio (no-code project / generate / deploy) end-to-end from the ag
 | `studio_generate` | `POST /api/studio/generate` | Run a Repull AI generation pass on a project using `prompt`. |
 | `studio_deploy` | `POST /api/studio/deployments` | Deploy the current project state to the Repull deploy fleet. |
 
-**Total: 24 tools.**
+**Total: 24 tools read-only (default install). 28 tools with every write scope enabled** (`REPULL_MCP_ENABLE_WRITES=*`).
 
 ## Sample agent prompts that work well
 
@@ -197,11 +211,35 @@ Every tool returns the API's full error envelope verbatim — `code`, `message`,
 
 For anything unexpected, the `request_id` field is what support will ask for. Email **hello@repull.dev** with the `request_id` and a one-line description — but try the `docs_url` first; nine times out of ten it has the answer.
 
-### Why no write tools (yet)
+### Write tools (opt-in)
 
-The Repull API supports a full set of mutations — modify reservations, cancel, push pricing, send guest messages, manage webhooks, etc. We are deliberately holding those out of v0.2. An LLM that decides to "tidy up" a reservation calendar is not a good story. We will add mutating tools individually, each one gated behind an opt-in env flag (`REPULL_MCP_ENABLE_WRITES=reservations:cancel,messaging:send` style), once we have real-world feedback on what people actually want.
+The Repull API supports a full set of mutations — modify reservations, cancel, push pricing, send guest messages, manage webhooks, etc. We're adding mutating tools to this server one at a time, and every one of them ships **off by default**. An LLM that decides to "tidy up" a reservation calendar on its own is still not a good story — that's exactly why this stays opt-in instead of graduating to always-on once a tool exists.
 
-If your use case needs writes today, use the [Repull SDK](https://repull.dev/docs) directly — it covers every endpoint.
+Four write tools exist today: `repull_create_reservation`, `repull_update_reservation`, `repull_create_guest`, `repull_send_conversation_message` (table above). None of them register — they won't even appear in `tools/list` — unless you turn them on.
+
+Set `REPULL_MCP_ENABLE_WRITES` to a comma-separated list of `domain:action` scopes:
+
+```bash
+REPULL_MCP_ENABLE_WRITES=reservations:create,messaging:send
+```
+
+Valid scopes: `reservations:create`, `reservations:update`, `guests:create`, `messaging:send`. Whitespace and case don't matter (`Reservations:Create` works). `*` or `all` turns on every write scope this server currently ships — useful for a sandbox key, but it also means a future write tool we add later comes on automatically for an existing `*` config without a re-opt-in, so prefer naming scopes explicitly in anything long-lived. An unrecognised scope is never silently accepted: it's logged as a warning to stderr (naming the scope and the valid list) and enables nothing.
+
+The server logs what it did at startup — check stderr:
+
+```
+[@repull/mcp] REPULL_MCP_ENABLE_WRITES not set — server is read-only (24 tools). Set it to a comma-separated list of reservations:create, reservations:update, guests:create, messaging:send to enable mutating tools.
+[@repull/mcp] connected (base=https://api.repull.dev). 24 tools registered.
+```
+
+or, with scopes enabled:
+
+```
+[@repull/mcp] write scopes enabled: messaging:send, reservations:create (2 of 4 write tool(s) registered).
+[@repull/mcp] connected (base=https://api.repull.dev). 26 tools registered.
+```
+
+If your use case needs the rest of the Repull mutation surface today (cancel, pricing, webhooks, etc.), use the [Repull SDK](https://repull.dev/docs) directly — it covers every endpoint.
 
 ## Local development
 

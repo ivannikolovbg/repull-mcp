@@ -2,9 +2,12 @@
 /**
  * @repull/mcp — Model Context Protocol server for the Repull API.
  *
- * Exposes a curated set of tools (discovery, introspection, reads, plus the
- * "start a Connect flow" entry point) over stdio so MCP clients (Claude
- * Desktop, Cursor, Continue, etc.) can talk to api.repull.dev.
+ * Exposes a curated set of tools (discovery, introspection, reads, the
+ * "start a Connect flow" entry points, and Studio) over stdio so MCP clients
+ * (Claude Desktop, Cursor, Continue, etc.) can talk to api.repull.dev. A
+ * small set of write tools (reservations.create/update, guests.create,
+ * messaging.send) exist but are NOT registered by default — see
+ * `REPULL_MCP_ENABLE_WRITES` / `parseWriteScopes()` / `registerWriteTools()`.
  *
  * Auth: requires the `REPULL_API_KEY` environment variable.
  *
@@ -15,18 +18,21 @@
  *   - List tools accept the API's native `cursor` (opaque string) for paging;
  *     the MCP does NOT auto-paginate, because LLMs do better when they decide
  *     when to fetch the next page.
- *   - Mutating tools (currently only the connect-session creators) accept an
- *     `idempotency_key` parameter that becomes the `Idempotency-Key` header.
+ *   - Mutating tools (connect-session creators, always on; reservations /
+ *     guests / messaging writes, opt-in) accept an `idempotency_key`
+ *     parameter that becomes the `Idempotency-Key` header.
  */
 
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { createRepullClient, RepullApiError, type RepullClient } from "./client.js";
 import { registerStudioTools } from "./studio.js";
+import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.1";
+const PACKAGE_VERSION = "0.2.3";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -109,6 +115,73 @@ function compact<T extends Record<string, unknown>>(obj: T): Partial<T> {
 }
 
 // ---------------------------------------------------------------------------
+// Write-tool gating. Mutating tools (reservations.create/update,
+// guests.create, messaging.send) are opt-in via REPULL_MCP_ENABLE_WRITES —
+// a comma-separated list of `domain:action` scopes. Default install (no env
+// var) stays 100% read-only. See the README's "Write tools (opt-in)" section.
+// ---------------------------------------------------------------------------
+
+/** Every write scope a tool can be gated behind, mapped to the tool it unlocks. */
+export const WRITE_SCOPE_TOOLS = {
+  "reservations:create": "repull_create_reservation",
+  "reservations:update": "repull_update_reservation",
+  "guests:create": "repull_create_guest",
+  "messaging:send": "repull_send_conversation_message",
+} as const satisfies Record<string, string>;
+
+export type WriteScope = keyof typeof WRITE_SCOPE_TOOLS;
+
+const WRITE_SCOPES: readonly WriteScope[] = Object.keys(WRITE_SCOPE_TOOLS) as WriteScope[];
+
+/** Tokens that mean "enable every write scope", checked case-insensitively. */
+const WILDCARD_TOKENS = new Set(["*", "all"]);
+
+export interface ParsedWriteScopes {
+  /** The set of write scopes to actually register tools for. */
+  enabled: Set<WriteScope>;
+  /** Raw tokens from the env var that didn't match a known scope or wildcard. */
+  unknown: string[];
+}
+
+/**
+ * Parses `REPULL_MCP_ENABLE_WRITES` into a set of enabled write scopes.
+ *
+ * Forgiving of whitespace and case. Comma-separated. `*` or `all` (either
+ * case) enables every write scope — documented in the README precisely
+ * because it is a blunt instrument: it is easy to reason about ("this
+ * install allows every write we currently ship") in a way that a silently
+ * growing allowlist is not, but it also means a future write tool added to
+ * WRITE_SCOPE_TOOLS is enabled by existing `*` configs without a re-opt-in.
+ * Unrecognised tokens are reported in `unknown` — never silently accepted —
+ * so the caller can warn to stderr and name the valid scopes.
+ */
+export function parseWriteScopes(raw: string | undefined | null): ParsedWriteScopes {
+  const enabled = new Set<WriteScope>();
+  const unknown: string[] = [];
+
+  if (!raw) return { enabled, unknown };
+
+  const tokens = raw
+    .split(",")
+    .map((t) => t.trim().toLowerCase())
+    .filter((t) => t.length > 0);
+
+  for (const token of tokens) {
+    if (WILDCARD_TOKENS.has(token)) {
+      for (const scope of WRITE_SCOPES) enabled.add(scope);
+      continue;
+    }
+    if ((WRITE_SCOPES as readonly string[]).includes(token)) {
+      enabled.add(token as WriteScope);
+      continue;
+    }
+    unknown.push(token);
+  }
+
+  return { enabled, unknown };
+}
+
+// ---------------------------------------------------------------------------
 // Lightweight, in-process caches for discovery tools.
 // OpenAPI changes rarely (per release); refetch every ~5 minutes is plenty.
 // ---------------------------------------------------------------------------
@@ -172,11 +245,39 @@ function summarizeOpenApi(spec: Record<string, unknown>, opts: { tag?: string | 
 // Server bootstrap
 // ---------------------------------------------------------------------------
 
+/** Discovery + introspection + read + connect + studio tools — always registered. */
+const READ_ONLY_TOOL_COUNT = 24;
+
 async function main(): Promise<void> {
   const apiKey = getApiKey();
   const baseUrl = getBaseUrl();
   const userAgent = `${PACKAGE_NAME}/${PACKAGE_VERSION}`;
   const client = createRepullClient({ apiKey, baseUrl, userAgent });
+
+  const { enabled: writeScopes, unknown: unknownScopes } = parseWriteScopes(
+    process.env.REPULL_MCP_ENABLE_WRITES
+  );
+
+  if (unknownScopes.length > 0) {
+    process.stderr.write(
+      `[${PACKAGE_NAME}] REPULL_MCP_ENABLE_WRITES: ignoring unrecognised scope(s) ` +
+        `${unknownScopes.map((s) => `"${s}"`).join(", ")}. Valid scopes: ` +
+        `${WRITE_SCOPES.join(", ")}, or "*"/"all" for every write scope.\n`
+    );
+  }
+
+  if (writeScopes.size === 0) {
+    process.stderr.write(
+      `[${PACKAGE_NAME}] REPULL_MCP_ENABLE_WRITES not set — server is read-only ` +
+        `(${READ_ONLY_TOOL_COUNT} tools). Set it to a comma-separated list of ` +
+        `${WRITE_SCOPES.join(", ")} to enable mutating tools.\n`
+    );
+  } else {
+    process.stderr.write(
+      `[${PACKAGE_NAME}] write scopes enabled: ${[...writeScopes].sort().join(", ")} ` +
+        `(${writeScopes.size} of ${WRITE_SCOPES.length} write tool(s) registered).\n`
+    );
+  }
 
   const server = new McpServer({
     name: PACKAGE_NAME,
@@ -186,14 +287,16 @@ async function main(): Promise<void> {
   registerDiscoveryTools(server, userAgent);
   registerIntrospectionTools(server, client);
   registerReadTools(server, client);
+  registerWriteTools(server, client, writeScopes);
   registerConnectTools(server, client);
   registerStudioTools(server, client, { errorFormat: errorText });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
+  const totalTools = READ_ONLY_TOOL_COUNT + writeScopes.size;
   process.stderr.write(
-    `[${PACKAGE_NAME}] connected (base=${baseUrl}). 24 tools registered.\n`
+    `[${PACKAGE_NAME}] connected (base=${baseUrl}). ${totalTools} tools registered.\n`
   );
 }
 
@@ -326,7 +429,7 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
         "Returns a snapshot of the workspace tied to the current API key: plan info, usage, and the " +
         "list of connected PMS/OTA channels with their status. Call this first when an agent starts " +
         "a session — it tells you what the user has access to (e.g. 'Airbnb is connected, Booking.com " +
-        "is not') so you can avoid suggesting actions that will fail. Combines `GET /v1/billing` and " +
+        "is not') so you can avoid suggesting actions that will fail. Combines `GET /v1/usage/tier` and " +
         "`GET /v1/connect` in a single call. Both sub-calls are best-effort; if either fails the other " +
         "is still returned.",
       inputSchema: {},
@@ -334,19 +437,19 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
     async () => {
       type Result = {
         api_base_url: string;
-        billing?: unknown;
-        billing_error?: unknown;
+        plan?: unknown;
+        plan_error?: unknown;
         connections?: unknown;
         connections_error?: unknown;
       };
       const result: Result = { api_base_url: getBaseUrl() };
       try {
-        result.billing = await client.get("/v1/billing");
+        result.plan = await client.get(TOOL_PATHS.repull_whoami_usage);
       } catch (err) {
-        result.billing_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
+        result.plan_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
       }
       try {
-        result.connections = await client.get("/v1/connect");
+        result.connections = await client.get(TOOL_PATHS.repull_whoami_connect);
       } catch (err) {
         result.connections_error = err instanceof RepullApiError ? err.toMcpPayload() : { error: { message: String(err) } };
       }
@@ -366,7 +469,7 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/health"));
+        return jsonText(await client.get(TOOL_PATHS.repull_health_check));
       } catch (err) {
         return errorText(err);
       }
@@ -380,7 +483,7 @@ function registerIntrospectionTools(server: McpServer, client: RepullClient): vo
 // agents prefer to decide when to fetch the next page).
 // ---------------------------------------------------------------------------
 
-function registerReadTools(server: McpServer, client: RepullClient): void {
+export function registerReadTools(server: McpServer, client: RepullClient): void {
   // ---- Reservations ------------------------------------------------------
   server.registerTool(
     "repull_list_reservations",
@@ -390,14 +493,14 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
         "List reservations across every connected PMS and OTA. Supports cursor pagination plus filters " +
         "by status, platform, listing, and check-in date range. Common use cases: 'show me upcoming " +
         "reservations', 'how many cancellations this week', 'find Airbnb bookings for listing 4118'. " +
-        "Returns `{ data: Reservation[], pagination: { next_cursor, has_more, ... } }` — pass " +
-        "`pagination.next_cursor` back as `cursor` to fetch the next page.",
+        "Returns `{ data: Reservation[], pagination: { nextCursor, hasMore, ... } }` — pass " +
+        "`pagination.nextCursor` back as `cursor` to fetch the next page.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe(
           "Page size (1–100). API defaults to 20 if omitted. Requests over 100 return a 422."
         ),
         cursor: z.string().optional().describe(
-          "Opaque cursor returned in the previous response's `pagination.next_cursor`. Omit to fetch the first page."
+          "Opaque cursor returned in the previous response's `pagination.nextCursor`. Omit to fetch the first page."
         ),
         status: z.enum(["confirmed", "pending", "cancelled", "completed"]).optional().describe(
           "Filter by reservation status."
@@ -418,7 +521,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/reservations", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_reservations, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -439,7 +542,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/reservations/${id}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_reservation, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -455,11 +558,11 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
         "List properties (the underlying units in the connected PMS systems) across every connected " +
         "platform. Supports cursor pagination plus a filter by PMS provider. Use this when the user " +
         "asks 'how many properties do I have?' or wants to see properties for a specific PMS. " +
-        "Returns `{ data: Property[], pagination }` — pass `pagination.next_cursor` as `cursor` for the next page.",
+        "Returns `{ data: Property[], pagination }` — pass `pagination.nextCursor` as `cursor` for the next page.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100). Defaults to 20."),
         cursor: z.string().optional().describe(
-          "Opaque cursor from `pagination.next_cursor` in the previous response. Omit for first page."
+          "Opaque cursor from `pagination.nextCursor` in the previous response. Omit for first page."
         ),
         provider: z.string().optional().describe(
           "Filter by PMS provider slug (e.g. 'guesty', 'hostaway', 'hostfully', 'lodgify', 'ownerrez')."
@@ -468,7 +571,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/properties", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_properties, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -488,7 +591,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/properties/${encodeURIComponent(id)}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_property, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -507,13 +610,13 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100). Defaults to 20."),
         cursor: z.string().optional().describe(
-          "Opaque cursor from `pagination.next_cursor` in the previous response."
+          "Opaque cursor from `pagination.nextCursor` in the previous response."
         ),
       },
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/listings", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_listings, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -533,7 +636,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/channels/airbnb/listings"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_airbnb_listings));
       } catch (err) {
         return errorText(err);
       }
@@ -551,12 +654,12 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
         "history for a specific guest, use `repull_get_guest`.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100). Defaults to 20."),
-        cursor: z.string().optional().describe("Opaque cursor from `pagination.next_cursor`."),
+        cursor: z.string().optional().describe("Opaque cursor from `pagination.nextCursor`."),
       },
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/guests", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_guests, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -576,7 +679,7 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
     },
     async ({ id }) => {
       try {
-        return jsonText(await client.get(`/v1/guests/${encodeURIComponent(id)}`));
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_guest, { id })));
       } catch (err) {
         return errorText(err);
       }
@@ -595,12 +698,12 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
         "`repull_list_conversation_messages`.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100). Defaults to 20."),
-        cursor: z.string().optional().describe("Opaque cursor from `pagination.next_cursor`."),
+        cursor: z.string().optional().describe("Opaque cursor from `pagination.nextCursor`."),
       },
     },
     async (args) => {
       try {
-        return jsonText(await client.get("/v1/conversations", { query: compact(args) }));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_conversations, { query: compact(args) }));
       } catch (err) {
         return errorText(err);
       }
@@ -617,13 +720,13 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
       inputSchema: {
         id: z.string().describe("Conversation ID."),
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100)."),
-        cursor: z.string().optional().describe("Opaque cursor from `pagination.next_cursor`."),
+        cursor: z.string().optional().describe("Opaque cursor from `pagination.nextCursor`."),
       },
     },
     async ({ id, limit, cursor }) => {
       try {
         return jsonText(
-          await client.get(`/v1/conversations/${encodeURIComponent(id)}/messages`, {
+          await client.get(resolvePath(TOOL_PATHS.repull_list_conversation_messages, { id }), {
             query: compact({ limit, cursor }),
           })
         );
@@ -635,10 +738,208 @@ function registerReadTools(server: McpServer, client: RepullClient): void {
 }
 
 // ---------------------------------------------------------------------------
-// Connect tools — the only "writes" exposed in v1. These are safe by design
-// (they kick off OAuth flows or provision sessions; they don't mutate listings
-// or reservations). Mutating tools (cancel, modify, send-message, etc.) are
-// deliberately not exposed yet — see README "Why no write tools (yet)".
+// Write tools — reservations.create/update, guests.create, messaging.send.
+// Every tool here mutates real state (books a stay, edits dates, texts a
+// real guest), so none of them register unless the operator explicitly
+// opts in via REPULL_MCP_ENABLE_WRITES. See parseWriteScopes() and the
+// README's "Write tools (opt-in)" section for the scope syntax.
+// ---------------------------------------------------------------------------
+
+export function registerWriteTools(
+  server: McpServer,
+  client: RepullClient,
+  enabledScopes: ReadonlySet<WriteScope>
+): void {
+  if (enabledScopes.has("reservations:create")) {
+    server.registerTool(
+      "repull_create_reservation",
+      {
+        title: "Create a reservation",
+        description:
+          "Create a DIRECT reservation on one of the workspace's own properties. `platform` is limited " +
+          "to 'direct', 'website' and 'owner' — OTA reservations are owned by the channel and arrive " +
+          "through sync, so they cannot be created here. The stay is priced by the pricing engine, NOT " +
+          "from anything in this request: read `totalPrice` and `currency` back off the response. Pass " +
+          "either an inline `guest` or an existing `guestId`. Pass `idempotency_key` so a retry cannot " +
+          "create a duplicate booking.",
+        inputSchema: {
+          listingId: z.number().int().positive().describe(
+            "Internal Repull property ID — from `repull_list_properties` or `repull_list_listings`."
+          ),
+          checkIn: z.string().describe("Check-in date, ISO YYYY-MM-DD."),
+          checkOut: z.string().describe("Check-out date, ISO YYYY-MM-DD. Must be after `checkIn`."),
+          guest: z
+            .object({
+              firstName: z.string(),
+              lastName: z.string().optional(),
+              email: z.string().email().optional(),
+              phone: z.string().optional(),
+            })
+            .optional()
+            .describe(
+              "Guest identity to match or create. Required unless `guestId` is supplied."
+            ),
+          guestId: z.number().int().positive().optional().describe(
+            "Attach an existing guest instead of matching/creating one. Must belong to this workspace."
+          ),
+          platform: z.enum(["direct", "website", "owner"]).optional().describe(
+            "Booking origin. Defaults to 'direct'. OTA platforms are deliberately not accepted."
+          ),
+          status: z.string().optional().describe(
+            "Lifecycle status to open the reservation in. Defaults to confirmed."
+          ),
+          checkInTime: z.string().optional().describe("Check-in time, 24h HH:MM (e.g. '16:00')."),
+          checkOutTime: z.string().optional().describe("Check-out time, 24h HH:MM (e.g. '10:00')."),
+          guestCount: z.number().int().min(1).optional().describe("Number of guests."),
+          currency: z.string().length(3).optional().describe("Three-letter currency code, e.g. 'USD'."),
+          idempotency_key: z.string().optional().describe(
+            "Optional Idempotency-Key header. Send a unique string per distinct request: the same key replays the stored response for 24 hours; the same key with a CHANGED payload is rejected with 422 idempotency_key_reused. Strongly recommended — it is what stops a retry double-booking a property."
+          ),
+        },
+      },
+      async ({ idempotency_key, ...body }) => {
+        try {
+          const data = await client.post(TOOL_PATHS.repull_create_reservation, {
+            body: compact(body as Record<string, unknown>),
+            idempotencyKey: idempotency_key,
+          });
+          return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("reservations:update")) {
+    server.registerTool(
+      "repull_update_reservation",
+      {
+        title: "Update a reservation",
+        description:
+          "Change a reservation's dates, times, guest count, or move it to another property in the same " +
+          "workspace. At least one field is required. Guest identity, pricing, `status`, `platform` and " +
+          "notes are rejected by name — they are not editable here. A `listingId` change combined with " +
+          "new dates is applied as ONE move, so the access code is re-issued once rather than twice, and " +
+          "a move forces the reservation to a confirmed status: read `status` and `changed` back off the " +
+          "response rather than assuming they are unchanged.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Internal Repull reservation ID."),
+          checkIn: z.string().optional().describe("New check-in date, ISO YYYY-MM-DD."),
+          checkOut: z.string().optional().describe("New check-out date, ISO YYYY-MM-DD."),
+          checkInTime: z.string().optional().describe("New check-in time, 24h HH:MM."),
+          checkOutTime: z.string().optional().describe("New check-out time, 24h HH:MM."),
+          guestCount: z.number().int().min(1).optional().describe("New guest count."),
+          listingId: z.number().int().positive().optional().describe(
+            "Move the reservation to another property in this workspace."
+          ),
+          idempotency_key: z.string().optional().describe(
+            "Optional Idempotency-Key header. The same key replays the stored response for 24 hours; the same key with a CHANGED payload is rejected with 422 idempotency_key_reused."
+          ),
+        },
+      },
+      async ({ id, idempotency_key, ...body }) => {
+        try {
+          const data = await client.patch(resolvePath(TOOL_PATHS.repull_update_reservation, { id }), {
+            body: compact(body as Record<string, unknown>),
+            idempotencyKey: idempotency_key,
+          });
+          return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("guests:create")) {
+    server.registerTool(
+      "repull_create_guest",
+      {
+        title: "Create a guest",
+        description:
+          "Create a guest profile, or match an existing one. Only `firstName` is required. The API " +
+          "matches on email/phone plus name before writing, so ALWAYS read `created` on the response " +
+          "rather than assuming a 2xx means a new record was made — `created: false` means an existing " +
+          "guest matched and was returned. Email and phone come back as separate entries in `contacts`. " +
+          "Pass `idempotency_key` so a retry cannot create a duplicate.",
+        inputSchema: {
+          firstName: z.string().describe("Guest's first name. The only required field."),
+          lastName: z.string().optional().describe("Guest's last name."),
+          email: z.string().email().optional().describe("Email address. Used for matching an existing guest."),
+          phone: z.string().optional().describe(
+            "Phone number, E.164 preferred (e.g. '+14035551234'). Stored normalised. Used for matching."
+          ),
+          language: z.string().optional().describe("BCP-47 language tag, e.g. 'en-GB'."),
+          currency: z.string().length(3).optional().describe("Three-letter currency code, e.g. 'GBP'."),
+          isBusinessTraveler: z.boolean().optional().describe("Mark the guest as a business traveller. Defaults to false."),
+          idempotency_key: z.string().optional().describe(
+            "Optional Idempotency-Key header. Send a unique string per distinct request: the same key replays the stored response for 24 hours; the same key with a CHANGED payload is rejected with 422 idempotency_key_reused. Recommended for production agents."
+          ),
+        },
+      },
+      async ({ idempotency_key, ...body }) => {
+        try {
+          const data = await client.post(TOOL_PATHS.repull_create_guest, {
+            body: compact(body as Record<string, unknown>),
+            idempotencyKey: idempotency_key,
+          });
+          return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("messaging:send")) {
+    server.registerTool(
+      "repull_send_conversation_message",
+      {
+        title: "Send a message to the guest",
+        description:
+          "Send a message to the guest on an existing conversation thread. This reaches a real person — " +
+          "confirm the text with the user before calling it. Omit `channel` to send on whichever channel " +
+          "the thread already uses, which is the right default. ALWAYS check `contentRewritten` on the " +
+          "response: when it is true the channel altered the text before delivery (today that means " +
+          "Airbnb stripped a link, an email address or a phone number), so the guest received " +
+          "`deliveredContent`, NOT `submittedContent` — tell the user when that happens. Pass " +
+          "`idempotency_key` so a retry cannot send the guest the same message twice.",
+        inputSchema: {
+          id: z.number().int().positive().describe(
+            "Internal Repull thread ID — from `repull_list_conversations`."
+          ),
+          message: z.string().min(1).max(4000).describe("The text to send the guest. 1–4000 characters."),
+          channel: z.enum(["airbnb", "booking", "sms", "email", "website"]).optional().describe(
+            "Force a channel. Omit to send on whichever channel the conversation already uses."
+          ),
+          idempotency_key: z.string().optional().describe(
+            "Optional Idempotency-Key header. Send a unique string per distinct message: the same key replays the stored response for 24 hours instead of sending again; the same key with CHANGED text is rejected with 422 idempotency_key_reused."
+          ),
+        },
+      },
+      async ({ id, idempotency_key, ...body }) => {
+        try {
+          const data = await client.post(
+            resolvePath(TOOL_PATHS.repull_send_conversation_message, { id }),
+            {
+              body: compact(body as Record<string, unknown>),
+              idempotencyKey: idempotency_key,
+            }
+          );
+          return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connect tools. These kick off OAuth flows or provision sessions; they don't
+// mutate listings or reservations. The guest/reservation/messaging writes live
+// in registerWriteTools() above, gated behind REPULL_MCP_ENABLE_WRITES.
 // ---------------------------------------------------------------------------
 
 function registerConnectTools(server: McpServer, client: RepullClient): void {
@@ -654,7 +955,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/connect"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_connections));
       } catch (err) {
         return errorText(err);
       }
@@ -673,7 +974,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async () => {
       try {
-        return jsonText(await client.get("/v1/connect/providers"));
+        return jsonText(await client.get(TOOL_PATHS.repull_list_connect_providers));
       } catch (err) {
         return errorText(err);
       }
@@ -737,7 +1038,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     async (args) => {
       try {
         const { provider, idempotency_key, ...body } = args;
-        const data = await client.post(`/v1/connect/${provider}`, {
+        const data = await client.post(resolvePath(TOOL_PATHS.repull_create_connect_session, { provider }), {
           body: compact(body as Record<string, unknown>),
           idempotencyKey: idempotency_key,
         });
@@ -774,7 +1075,7 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
     },
     async ({ idempotency_key, ...body }) => {
       try {
-        const data = await client.post(`/v1/connect`, {
+        const data = await client.post(TOOL_PATHS.repull_create_connect_picker_session, {
           body: compact(body as Record<string, unknown>),
           idempotencyKey: idempotency_key,
         });
@@ -788,9 +1089,19 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
 
 // ---------------------------------------------------------------------------
 
-main().catch((err) => {
-  process.stderr.write(
-    `[${PACKAGE_NAME}] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`
-  );
-  process.exit(1);
-});
+// Only auto-run the server when this file is executed directly (`node
+// dist/index.js`, the package's `bin` entry point) — NOT when it's imported,
+// e.g. by src/write-tools.test.ts to exercise registerWriteTools()/
+// parseWriteScopes() against a fake McpServer without booting a real stdio
+// server.
+const isMainModule =
+  process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isMainModule) {
+  main().catch((err) => {
+    process.stderr.write(
+      `[${PACKAGE_NAME}] fatal: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`
+    );
+    process.exit(1);
+  });
+}
