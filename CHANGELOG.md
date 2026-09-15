@@ -4,6 +4,38 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-09-15
+
+### Changed
+
+- Refreshed `openapi/v1.json` against the live API (174 → 175 operations):
+  new `POST /v1/listings/status` (bulk activate/deactivate); `DELETE
+  /v1/connect/{provider}` gains an optional `accountId` query param and a
+  typed `{ disconnected, provider, accountId, listingsDeactivated }` response;
+  `GET /v1/connect/{provider}` declares `accounts[]`; a new `403
+  listing_inactive` error response on 83 operations; Airbnb calendar writes
+  gain `busy_subtype`, stricter validation and new errors (`422
+  airbnb_rejected`, `403 connection_reauth_required`, `429
+  airbnb_rate_limited`); Booking.com webhooks endpoints are deprecated (always
+  `403`).
+- `repull_list_listings` and `repull_list_properties` gain a `status` filter
+  (`active|inactive|archived|all` and `active|inactive|all`). The API now
+  returns active rows only by default, so without it an agent could not see
+  inactive listings at all. Descriptions explain that inactive listings keep
+  syncing but return `403 listing_inactive` until activated.
+- `repull_create_connect_session`: `accessType` accepts `messaging`, and its
+  description now says passing it locks the host's consent screen to that
+  tier — omit it to let the host choose. The old text called `full_access`
+  the default, which nudged agents into always sending it.
+
+### Notes
+
+- No tool was added for `POST /v1/listings/status` or account disconnect:
+  both change billing/connection state, and a new write scope would be
+  auto-enabled for existing `REPULL_MCP_ENABLE_WRITES=*` installs.
+- New `src/list-status-filters.test.ts` pins those tool enums to the enums in
+  the bundled spec snapshot.
+
 ## [0.2.3] - 2026-09-11
 
 ### Added

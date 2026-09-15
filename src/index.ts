@@ -32,7 +32,7 @@ import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.3";
+const PACKAGE_VERSION = "0.2.4";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -567,6 +567,10 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
         provider: z.string().optional().describe(
           "Filter by PMS provider slug (e.g. 'guesty', 'hostaway', 'hostfully', 'lodgify', 'ownerrez')."
         ),
+        status: z.enum(["active", "inactive", "all"]).optional().describe(
+          "Filter by status. Defaults to 'active'. 'inactive' properties carry identity fields only " +
+            "(id, name, status, lifecycleStatus, channels, updatedAt); 'all' includes both."
+        ),
       },
     },
     async (args) => {
@@ -606,11 +610,17 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       description:
         "List native Repull listings — the canonical listings created via `POST /v1/listings`, which " +
         "can then be published to Airbnb / Booking.com via the publish endpoints. Distinct from " +
-        "`repull_list_properties` (which surfaces underlying PMS rows). Supports cursor pagination.",
+        "`repull_list_properties` (which surfaces underlying PMS rows). Supports cursor pagination. " +
+        "Returns ACTIVE listings only unless `status` says otherwise — an inactive listing keeps syncing " +
+        "but is not billed and cannot be read or changed (403 `listing_inactive`) until activated.",
       inputSchema: {
         limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100). Defaults to 20."),
         cursor: z.string().optional().describe(
           "Opaque cursor from `pagination.nextCursor` in the previous response."
+        ),
+        status: z.enum(["active", "inactive", "archived", "all"]).optional().describe(
+          "Filter by listing status. Defaults to 'active'. 'inactive' lists listings that can be activated " +
+            "(identity fields only: id, name, status, channels); 'all' returns every status."
         ),
       },
     },
@@ -942,7 +952,7 @@ export function registerWriteTools(
 // in registerWriteTools() above, gated behind REPULL_MCP_ENABLE_WRITES.
 // ---------------------------------------------------------------------------
 
-function registerConnectTools(server: McpServer, client: RepullClient): void {
+export function registerConnectTools(server: McpServer, client: RepullClient): void {
   server.registerTool(
     "repull_list_connections",
     {
@@ -1016,10 +1026,12 @@ function registerConnectTools(server: McpServer, client: RepullClient): void {
             "Airbnb only — where to redirect the user after the OAuth flow completes."
           ),
         accessType: z
-          .enum(["read_only", "full_access"])
+          .enum(["read_only", "full_access", "messaging"])
           .optional()
           .describe(
-            "Airbnb only — OAuth scope set. 'read_only' grants calendar-only access; 'full_access' grants full host scopes (default)."
+            "Airbnb only — OAuth scope set. 'read_only' grants read-only scopes; 'messaging' adds message read/send " +
+              "without property management (coexists with a PMS that holds it); 'full_access' grants full host " +
+              "scopes. Passing it LOCKS the consent screen to that tier. Omit it (recommended) to let the host choose."
           ),
         apiKey: z.string().optional().describe(
           "PMS providers only — the customer's API key for the target PMS."
