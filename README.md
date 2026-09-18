@@ -141,8 +141,17 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 | `repull_get_reservation` | `GET /v1/reservations/{id}` | Full reservation detail (guest, dates, pricing, payment, platform fields). |
 | `repull_list_properties` | `GET /v1/properties` | Cursor-paginated list of underlying PMS properties; filterable by `provider`. |
 | `repull_get_property` | `GET /v1/properties/{id}` | Full property detail (address, amenities, photos, capacity). |
-| `repull_list_listings` | `GET /v1/listings` | Cursor-paginated list of native Repull listings (the canonical objects you publish to channels). |
-| `repull_list_airbnb_listings` | `GET /v1/channels/airbnb/listings` | Airbnb's view of listings on the connected Airbnb account. |
+| `repull_list_listings` | `GET /v1/listings` | Cursor-paginated list of native Repull listings (the canonical objects you publish to channels). Accepts `include` (`content`, `details`, `thumbnail`). |
+| `repull_list_airbnb_listings` | `GET /v1/channels/airbnb/listings` | Airbnb's view of listings on the connected Airbnb account. Accepts `include` (`amenities`, `thumbnail`) and `account_id` to scope to one connected Airbnb account. |
+| `repull_get_airbnb_listing` | `GET /v1/channels/airbnb/listings/{id}` | One Airbnb listing with its connection rows, including `syncCategory` — whether Repull manages content, only rates and availability, or nothing. |
+| `repull_get_airbnb_booking_settings` | `GET /v1/channels/airbnb/listings/{id}/booking-settings` | Instant Book, check-in/check-out windows, advance notice, and the cancellation policy. |
+| `repull_get_airbnb_listing_details` | `GET /v1/channels/airbnb/listings/{id}/details` | Property type, room type, capacity, quiet hours, check-in method, and `lockedFields`. |
+| `repull_list_airbnb_listing_photos` | `GET /v1/channels/airbnb/listings/{id}/photos` | The photo tour in display order. |
+| `repull_list_airbnb_listing_rooms` | `GET /v1/channels/airbnb/listings/{id}/rooms` | Rooms and their sleeping arrangements. |
+| `repull_list_airbnb_listing_amenities` | `GET /v1/channels/airbnb/listings/{id}/amenities` | Amenities claimed on Airbnb, including accessibility amenities. |
+| `repull_list_airbnb_listing_descriptions` | `GET /v1/channels/airbnb/listings/{id}/descriptions` | Listing copy, per locale. |
+| `repull_list_airbnb_listing_permits` | `GET /v1/channels/airbnb/listings/{id}/permits` | Regulatory permit/licence questions and the answers on file. |
+| `repull_list_airbnb_listing_safety_disclosures` | `GET /v1/channels/airbnb/listings/{id}/safety-disclosures` | Declared guest-safety disclosures (cameras, noise monitors, hazards). |
 | `repull_list_guests` | `GET /v1/guests` | Cursor-paginated list of guest profiles. |
 | `repull_get_guest` | `GET /v1/guests/{id}` | Single guest profile (contacts, flags, history). |
 | `repull_list_conversations` | `GET /v1/conversations` | Cursor-paginated list of guest message threads across every channel. |
@@ -169,6 +178,18 @@ None of these register unless their scope is listed in `REPULL_MCP_ENABLE_WRITES
 | `repull_update_reservation` | `reservations:update` | `PATCH /v1/reservations/{id}` | Change dates, times, guest count, or move a reservation to another property. Accepts `idempotency_key`. |
 | `repull_create_guest` | `guests:create` | `POST /v1/guests` | Create a guest profile, or match an existing one by email/phone/name. Accepts `idempotency_key`. |
 | `repull_send_conversation_message` | `messaging:send` | `POST /v1/conversations/{id}/messages` | Send a message to the guest on an existing thread — reaches a real person. Accepts `idempotency_key`. |
+
+#### Not exposed on purpose
+
+The API also lets you *write* Airbnb listing content — booking settings and the
+cancellation policy, property details, photos, rooms, amenities, descriptions,
+permits, safety disclosures — plus refresh a listing from Airbnb and cancel a
+reservation alteration. None of those are MCP tools.
+
+They change what guests see, what a stay costs, and whether a booking stands,
+and an operator who sets `REPULL_MCP_ENABLE_WRITES=all` to get message-sending
+would inherit every one of them silently. The reads are all here; use the REST
+API or an SDK for the writes.
 
 ### Studio
 

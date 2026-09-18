@@ -4,6 +4,54 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-09-18
+
+### Added
+
+- Nine read-only Airbnb listing-content tools, covering the reads the API
+  added in this wave:
+  - `repull_get_airbnb_listing` — one Airbnb listing with its connection rows,
+    including `syncCategory`: whether Repull manages content, only rates and
+    availability, or nothing at all. Worth reading before assuming a listing's
+    content can be changed.
+  - `repull_get_airbnb_booking_settings` — Instant Book, the check-in and
+    check-out windows, advance notice, and the cancellation policy including
+    any non-refundable option.
+  - `repull_get_airbnb_listing_details` — property type, room type, capacity,
+    quiet hours, check-in method, and `lockedFields`.
+  - `repull_list_airbnb_listing_photos`, `..._rooms`, `..._amenities`,
+    `..._descriptions` (per locale), `..._permits` (with `source`),
+    `..._safety_disclosures`.
+
+### Changed
+
+- Refreshed `openapi/v1.json` against the live API (175 → 191 operations,
+  nothing removed). The 16 new operations are the Airbnb listing-content
+  surface (booking settings, details, permits, safety disclosures, photos
+  incl. reorder and cover, rooms, amenities, per-locale descriptions), an
+  alteration cancel, and a listing refresh from Airbnb.
+- `repull_list_airbnb_listings` gains `include` (`amenities`, `thumbnail`) and
+  `account_id`, which scopes the read to one connected Airbnb account — with
+  it, `dataFreshness.accounts[]` holds exactly that account. Its description
+  now says the endpoint reads the local mirror rather than Airbnb, and points
+  at `dataFreshness` before trusting a null column.
+- `repull_list_listings` gains `include` (`content`, `details`, `thumbnail`).
+  `thumbnail` is the only expansion that applies to inactive listings.
+
+### Notes
+
+- **No write tool was added for any of it.** The API also lets you write
+  booking settings and the cancellation policy, details, photos and their
+  order, rooms, amenities, descriptions, permits and safety disclosures, plus
+  refresh a listing from Airbnb and cancel a reservation alteration. Those
+  change what guests see, what a stay costs, and whether a booking stands —
+  and an operator who set `REPULL_MCP_ENABLE_WRITES=all` to unlock
+  message-sending would inherit every one of them silently. The reads are
+  here; the writes stay in the REST API and the SDKs.
+- New `src/airbnb-content-tools.test.ts` pins both halves: the content reads
+  are registered and resolve to real spec paths, and no tool — not even with
+  every write scope enabled — reaches a content write route.
+
 ## [0.2.4] - 2026-09-15
 
 ### Changed

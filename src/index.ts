@@ -622,6 +622,11 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
           "Filter by listing status. Defaults to 'active'. 'inactive' lists listings that can be activated " +
             "(identity fields only: id, name, status, channels); 'all' returns every status."
         ),
+        include: z.string().optional().describe(
+          "Comma-separated optional expansions: 'content', 'details', 'thumbnail'. 'thumbnail' " +
+            "guarantees thumbnailUrl on every row and is the only expansion that applies to " +
+            "inactive listings."
+        ),
       },
     },
     async (args) => {
@@ -641,12 +646,250 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       description:
         "List Airbnb listings on the Airbnb account connected to this workspace. Requires an active " +
         "Airbnb connection (check via `repull_whoami` first). Returns Airbnb's view of each listing — " +
-        "title, status, photos count, etc. For native Repull listings, use `repull_list_listings`.",
-      inputSchema: {},
+        "title, status, photos count, etc. For native Repull listings, use `repull_list_listings`. " +
+        "This reads the local Airbnb mirror, never Airbnb upstream, so check `dataFreshness` before " +
+        "trusting a null column — and `dataFreshness.accounts[]` when the workspace has more than " +
+        "one Airbnb account connected.",
+      inputSchema: {
+        include: z.string().optional().describe(
+          "Comma-separated expansions: 'amenities' (adds the amenity arrays to each connection) and " +
+            "'thumbnail' (guarantees thumbnailUrl on every row)."
+        ),
+        account_id: z.string().optional().describe(
+          "Scope the read to ONE connected Airbnb account — the host id from `repull_whoami`'s " +
+            "connect status (`accounts[].externalAccountId`). With it, `dataFreshness.accounts[]` " +
+            "holds exactly that account."
+        ),
+      },
     },
-    async () => {
+    async (args) => {
       try {
-        return jsonText(await client.get(TOOL_PATHS.repull_list_airbnb_listings));
+        return jsonText(
+          await client.get(TOOL_PATHS.repull_list_airbnb_listings, { query: compact(args) })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_airbnb_listing",
+    {
+      title: "Get an Airbnb listing",
+      description:
+        "Fetch one Airbnb listing with its connection rows. Each connection carries `syncCategory` — " +
+        "'sync_all' (Repull manages content, rates and availability), 'sync_rates_and_availability' " +
+        "(content is managed by the host on Airbnb), or 'none' (the listing is not connected to " +
+        "Repull on Airbnb's side, and every write to it is refused). Read this before assuming a " +
+        "listing's content can be changed.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(await client.get(resolvePath(TOOL_PATHS.repull_get_airbnb_listing, { id })));
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  // Airbnb listing content — READ ONLY. The API also exposes PUT/PATCH on every
+  // one of these paths (booking settings, details, photos, rooms, amenities,
+  // descriptions, permits, safety disclosures) plus a listing refresh and an
+  // alteration cancel. Those are deliberately NOT exposed as tools: they change
+  // what guests see, what a stay costs, and whether a booking stands, and an
+  // operator who sets REPULL_MCP_ENABLE_WRITES=all to get message-sending would
+  // silently inherit them. See CHANGELOG v0.2.5.
+  server.registerTool(
+    "repull_get_airbnb_booking_settings",
+    {
+      title: "Get Airbnb booking settings",
+      description:
+        "Read a listing's Airbnb booking settings: Instant Book (`bookingMode`, which guests may " +
+        "book instantly), the check-in and check-out windows as hours of the day, how much advance " +
+        "notice a booking needs, and the cancellation policy including any non-refundable option. " +
+        "Use this to answer 'can this be booked same-day?' or 'what is the cancellation policy?'.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_get_airbnb_booking_settings, { id }))
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_airbnb_listing_details",
+    {
+      title: "Get Airbnb listing details",
+      description:
+        "Read what kind of property a listing is on Airbnb — property type, room type, capacity, " +
+        "bedrooms/beds/bathrooms, quiet hours, and how the guest lets themselves in. Also returns " +
+        "`lockedFields`: the attributes Airbnb manages on an established listing and will not let " +
+        "anyone change.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_get_airbnb_listing_details, { id }))
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_photos",
+    {
+      title: "List Airbnb photos",
+      description:
+        "List a listing's Airbnb photo tour in display order, with each photo's Airbnb-side id, " +
+        "caption, room, and sort order.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_list_airbnb_listing_photos, { id }))
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_rooms",
+    {
+      title: "List Airbnb rooms",
+      description:
+        "List a listing's Airbnb rooms and their sleeping arrangements — room type, room number, " +
+        "and the beds in each. Use this to answer 'how many beds are in the second bedroom?'.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_list_airbnb_listing_rooms, { id }))
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_amenities",
+    {
+      title: "List Airbnb amenities",
+      description:
+        "List the amenities a listing claims on Airbnb, including accessibility amenities. Use this " +
+        "to answer 'does this place have air conditioning / parking / a crib?'.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_list_airbnb_listing_amenities, { id }))
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_descriptions",
+    {
+      title: "List Airbnb descriptions",
+      description:
+        "Read a listing's Airbnb copy. Airbnb keeps a separate description per locale, so pass " +
+        "`locale` to read one language's version; omit it to see every locale already synced.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+        locale: z.string().optional().describe("Language tag — 'en', 'it', 'pt-BR'."),
+        country: z.string().optional().describe("Country code, when the copy varies by market."),
+      },
+    },
+    async ({ id, locale, country }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_list_airbnb_listing_descriptions, { id }), {
+            query: compact({ locale, country }),
+          })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_permits",
+    {
+      title: "List Airbnb permits and licences",
+      description:
+        "List the regulatory permit and licence questions Airbnb asks for this listing, and the " +
+        "answers on file. Pass `source: 'live'` to read them from Airbnb rather than the local " +
+        "mirror. Use this to check whether a listing's short-term-rental registration is answered.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+        source: z.string().optional().describe(
+          "'live' reads the questions from Airbnb instead of the local mirror."
+        ),
+      },
+    },
+    async ({ id, source }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_list_airbnb_listing_permits, { id }), {
+            query: compact({ source }),
+          })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_airbnb_listing_safety_disclosures",
+    {
+      title: "List guest-safety disclosures",
+      description:
+        "List the guest-safety disclosures declared on this listing — security cameras, noise " +
+        "monitors, weapons, pools and other hazards. Use this to answer a guest asking whether " +
+        "there are cameras on the property.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string), not the Airbnb listing id."),
+      },
+    },
+    async ({ id }) => {
+      try {
+        return jsonText(
+          await client.get(
+            resolvePath(TOOL_PATHS.repull_list_airbnb_listing_safety_disclosures, { id })
+          )
+        );
       } catch (err) {
         return errorText(err);
       }
