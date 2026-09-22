@@ -4,6 +4,43 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.6] - 2026-09-22
+
+### Added
+
+- Two read tools, always on:
+  - `repull_list_inquiries` — Airbnb inquiries with dates, guest counts,
+    expected payout and the `respondBy` deadline. `status` defaults to `open`;
+    `all` for every state.
+  - `repull_get_conversation_special_offer` — one special offer sent on a
+    conversation.
+- `repull_send_conversation_message` takes `attachments` (1–5 files by public
+  `https://` URL). `message` is now optional when attachments are present
+  (Booking.com still requires it).
+- Five write tools for answering inquiries and booking requests, each behind
+  its own scope: `repull_preapprove_conversation` (`inquiries:preapprove`),
+  `repull_send_special_offer` (`offers:send`), `repull_withdraw_special_offer`
+  (`offers:withdraw`), `repull_accept_reservation_request`
+  (`reservations:accept`), `repull_decline_reservation_request`
+  (`reservations:decline`).
+
+### Changed
+
+- **These five scopes are explicit-only: `*` / `all` does not enable them.**
+  They decide whether a booking happens and at what price, and an operator
+  who set `all` to unlock message-sending never agreed to that. Name them in
+  `REPULL_MCP_ENABLE_WRITES` (alongside `all` if you like). The four existing
+  scopes still come on with the wildcard, as before.
+- Refreshed `openapi/v1.json` against the live API (191 → 199 operations,
+  nothing removed).
+- The startup log's read-only tool count was stale (said 24); it now reports
+  the real 35. The server's reported version was also stale (0.2.4) and now
+  matches the package.
+
+### Notes
+
+- Airbnb listing-content writes remain unexposed, as in 0.2.5.
+
 ## [0.2.5] - 2026-09-18
 
 ### Added

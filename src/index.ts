@@ -32,7 +32,7 @@ import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.4";
+const PACKAGE_VERSION = "0.2.6";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -127,11 +127,32 @@ export const WRITE_SCOPE_TOOLS = {
   "reservations:update": "repull_update_reservation",
   "guests:create": "repull_create_guest",
   "messaging:send": "repull_send_conversation_message",
+  "inquiries:preapprove": "repull_preapprove_conversation",
+  "offers:send": "repull_send_special_offer",
+  "offers:withdraw": "repull_withdraw_special_offer",
+  "reservations:accept": "repull_accept_reservation_request",
+  "reservations:decline": "repull_decline_reservation_request",
 } as const satisfies Record<string, string>;
 
 export type WriteScope = keyof typeof WRITE_SCOPE_TOOLS;
 
 const WRITE_SCOPES: readonly WriteScope[] = Object.keys(WRITE_SCOPE_TOOLS) as WriteScope[];
+
+/**
+ * Scopes that `*` / `all` does NOT enable — each must be named explicitly.
+ *
+ * These tools decide whether a booking happens and at what price (answer a
+ * booking request, pre-approve an inquiry, offer a custom total). An operator
+ * who set `all` months ago to unlock message-sending never agreed to them, so
+ * the wildcard keeps meaning "the writes that existed when you opted in".
+ */
+export const EXPLICIT_ONLY_WRITE_SCOPES: ReadonlySet<WriteScope> = new Set<WriteScope>([
+  "inquiries:preapprove",
+  "offers:send",
+  "offers:withdraw",
+  "reservations:accept",
+  "reservations:decline",
+]);
 
 /** Tokens that mean "enable every write scope", checked case-insensitively. */
 const WILDCARD_TOKENS = new Set(["*", "all"]);
@@ -150,8 +171,8 @@ export interface ParsedWriteScopes {
  * case) enables every write scope — documented in the README precisely
  * because it is a blunt instrument: it is easy to reason about ("this
  * install allows every write we currently ship") in a way that a silently
- * growing allowlist is not, but it also means a future write tool added to
- * WRITE_SCOPE_TOOLS is enabled by existing `*` configs without a re-opt-in.
+ * growing allowlist is not. Scopes in EXPLICIT_ONLY_WRITE_SCOPES are the
+ * exception: the wildcard skips them, so they must be named one by one.
  * Unrecognised tokens are reported in `unknown` — never silently accepted —
  * so the caller can warn to stderr and name the valid scopes.
  */
@@ -168,7 +189,9 @@ export function parseWriteScopes(raw: string | undefined | null): ParsedWriteSco
 
   for (const token of tokens) {
     if (WILDCARD_TOKENS.has(token)) {
-      for (const scope of WRITE_SCOPES) enabled.add(scope);
+      for (const scope of WRITE_SCOPES) {
+        if (!EXPLICIT_ONLY_WRITE_SCOPES.has(scope)) enabled.add(scope);
+      }
       continue;
     }
     if ((WRITE_SCOPES as readonly string[]).includes(token)) {
@@ -246,7 +269,7 @@ function summarizeOpenApi(spec: Record<string, unknown>, opts: { tag?: string | 
 // ---------------------------------------------------------------------------
 
 /** Discovery + introspection + read + connect + studio tools — always registered. */
-const READ_ONLY_TOOL_COUNT = 24;
+const READ_ONLY_TOOL_COUNT = 35;
 
 async function main(): Promise<void> {
   const apiKey = getApiKey();
@@ -262,7 +285,8 @@ async function main(): Promise<void> {
     process.stderr.write(
       `[${PACKAGE_NAME}] REPULL_MCP_ENABLE_WRITES: ignoring unrecognised scope(s) ` +
         `${unknownScopes.map((s) => `"${s}"`).join(", ")}. Valid scopes: ` +
-        `${WRITE_SCOPES.join(", ")}, or "*"/"all" for every write scope.\n`
+        `${WRITE_SCOPES.join(", ")}, or "*"/"all" for every write scope except ` +
+        `${[...EXPLICIT_ONLY_WRITE_SCOPES].join(", ")} (name those explicitly).\n`
     );
   }
 
@@ -988,6 +1012,70 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       }
     }
   );
+
+  server.registerTool(
+    "repull_list_inquiries",
+    {
+      title: "List Airbnb inquiries",
+      description:
+        "List Airbnb inquiries — guests asking about a listing before booking — with the dates, guest " +
+        "counts, expected payout and `respondBy` deadline. `status` defaults to `open` (still waiting " +
+        "on a host answer); pass `all` for every state. Use for 'which inquiries need an answer?' or " +
+        "'what did guests ask about listing 4118 this week?'. Each row carries `conversationId`, which " +
+        "`repull_list_conversation_messages` reads. Supports cursor pagination.",
+      inputSchema: {
+        status: z
+          .enum([
+            "open",
+            "pre_approved",
+            "special_offer_sent",
+            "booked",
+            "expired",
+            "declined",
+            "not_possible",
+            "all",
+          ])
+          .optional()
+          .describe("Filter by inquiry state. Defaults to `open`."),
+        listing_id: z.number().int().positive().optional().describe("Only inquiries about this listing."),
+        conversation_id: z.number().int().positive().optional().describe("Only the inquiry on this conversation."),
+        limit: z.number().int().min(1).max(100).optional().describe("Page size (1–100, default 50)."),
+        cursor: z.string().optional().describe("Opaque cursor from `pagination.nextCursor`."),
+      },
+    },
+    async (args) => {
+      try {
+        return jsonText(await client.get(TOOL_PATHS.repull_list_inquiries, { query: compact(args) }));
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_conversation_special_offer",
+    {
+      title: "Get a special offer",
+      description:
+        "Read one Airbnb special offer sent on a conversation — dates, nights, total price and whether " +
+        "the guest has booked it. Use the offer `id` returned when the offer was sent.",
+      inputSchema: {
+        id: z.number().int().positive().describe("Repull conversation ID the offer was sent on."),
+        offer_id: z.string().min(1).describe("Airbnb special-offer id."),
+      },
+    },
+    async ({ id, offer_id }) => {
+      try {
+        return jsonText(
+          await client.get(
+            resolvePath(TOOL_PATHS.repull_get_conversation_special_offer, { id, offerId: offer_id })
+          )
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1162,16 +1250,37 @@ export function registerWriteTools(
           id: z.number().int().positive().describe(
             "Internal Repull thread ID — from `repull_list_conversations`."
           ),
-          message: z.string().min(1).max(4000).describe("The text to send the guest. 1–4000 characters."),
+          message: z.string().min(1).max(4000).optional().describe(
+            "The text to send the guest. 1–4000 characters. Required unless `attachments` is present " +
+              "(and always required on Booking.com)."
+          ),
           channel: z.enum(["airbnb", "booking", "sms", "email", "website"]).optional().describe(
             "Force a channel. Omit to send on whichever channel the conversation already uses."
           ),
+          attachments: z
+            .array(
+              z.object({
+                url: z.string().url().describe("Public https:// URL of the file. A short-lived signed URL is fine."),
+                contentType: z.string().optional().describe("Optional type hint, e.g. image/jpeg."),
+                filename: z.string().max(200).optional().describe("Optional filename shown to the guest."),
+              })
+            )
+            .min(1)
+            .max(5)
+            .optional()
+            .describe(
+              "Files to send (1–5). Airbnb: JPEG/PNG/GIF/WebP/MP4/QuickTime, each sent as its own message. " +
+                "Booking.com: JPEG/PNG, `message` required. SMS/email/website chat reject attachments (422)."
+            ),
           idempotency_key: z.string().optional().describe(
             "Optional Idempotency-Key header. Send a unique string per distinct message: the same key replays the stored response for 24 hours instead of sending again; the same key with CHANGED text is rejected with 422 idempotency_key_reused."
           ),
         },
       },
       async ({ id, idempotency_key, ...body }) => {
+        if (!body.message && !body.attachments) {
+          return errorText(new Error("Pass `message`, `attachments`, or both."));
+        }
         try {
           const data = await client.post(
             resolvePath(TOOL_PATHS.repull_send_conversation_message, { id }),
@@ -1181,6 +1290,183 @@ export function registerWriteTools(
             }
           );
           return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  const idempotencyKeySchema = z.string().optional().describe(
+    "Optional Idempotency-Key header — the same key replays the stored response for 24 hours instead of acting twice."
+  );
+
+  if (enabledScopes.has("inquiries:preapprove")) {
+    server.registerTool(
+      "repull_preapprove_conversation",
+      {
+        title: "Pre-approve an Airbnb inquiry",
+        description:
+          "Pre-approve the guest on an Airbnb inquiry so they can book the dates and price they asked " +
+          "about. This commits the listing to that guest — confirm with the user first. Leave " +
+          "`block_instant_booking` off unless the guest must book through this pre-approval. Read " +
+          "`expiresAt` on the response for when it lapses.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Repull conversation ID — from `repull_list_inquiries`."),
+          block_instant_booking: z.boolean().optional().describe(
+            "When true, the guest cannot Instant Book and must book through this pre-approval."
+          ),
+          idempotency_key: idempotencyKeySchema,
+        },
+      },
+      async ({ id, block_instant_booking, idempotency_key }) => {
+        try {
+          return jsonText(
+            await client.post(resolvePath(TOOL_PATHS.repull_preapprove_conversation, { id }), {
+              body: compact({ blockInstantBooking: block_instant_booking }),
+              idempotencyKey: idempotency_key,
+            })
+          );
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("offers:send")) {
+    server.registerTool(
+      "repull_send_special_offer",
+      {
+        title: "Send an Airbnb special offer",
+        description:
+          "Send the guest on an Airbnb inquiry a special offer: your own dates and whole-stay total. " +
+          "The guest can book it straight away, so confirm the dates and price with the user first. " +
+          "`total_price` is the whole stay in the listing's Airbnb currency. Keep the returned `id` to " +
+          "read or withdraw the offer.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Repull conversation ID — from `repull_list_inquiries`."),
+          check_in: z.string().describe("Check-in date, YYYY-MM-DD."),
+          check_out: z.string().describe("Check-out date, YYYY-MM-DD. Must be after check_in."),
+          adults: z.number().int().min(1).describe("Number of adults."),
+          children: z.number().int().min(0).optional().describe("Number of children."),
+          infants: z.number().int().min(0).optional().describe("Number of infants."),
+          pets: z.number().int().min(0).optional().describe("Number of pets."),
+          total_price: z.number().positive().describe("Total the guest pays for the whole stay."),
+          listing_id: z.number().int().positive().optional().describe(
+            "Repull listing ID to offer. Defaults to the listing the conversation is about."
+          ),
+          idempotency_key: idempotencyKeySchema,
+        },
+      },
+      async ({ id, check_in, check_out, adults, children, infants, pets, total_price, listing_id, idempotency_key }) => {
+        try {
+          return jsonText(
+            await client.post(resolvePath(TOOL_PATHS.repull_send_special_offer, { id }), {
+              body: compact({
+                listingId: listing_id,
+                checkIn: check_in,
+                checkOut: check_out,
+                guests: compact({ adults, children, infants, pets }),
+                totalPrice: total_price,
+              }),
+              idempotencyKey: idempotency_key,
+            })
+          );
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("offers:withdraw")) {
+    server.registerTool(
+      "repull_withdraw_special_offer",
+      {
+        title: "Withdraw an Airbnb special offer",
+        description:
+          "Withdraw a special offer the guest has not booked yet. The guest can no longer book it.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Repull conversation ID the offer was sent on."),
+          offer_id: z.string().min(1).describe("Airbnb special-offer id."),
+        },
+      },
+      async ({ id, offer_id }) => {
+        try {
+          return jsonText(
+            await client.delete(
+              resolvePath(TOOL_PATHS.repull_withdraw_special_offer, { id, offerId: offer_id })
+            )
+          );
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("reservations:accept")) {
+    server.registerTool(
+      "repull_accept_reservation_request",
+      {
+        title: "Accept an Airbnb booking request",
+        description:
+          "Accept a pending Airbnb booking request, turning it into a confirmed reservation. Only a " +
+          "reservation with status `pending` and a future `respondBy` can be answered. Confirm with the " +
+          "user first — this books the stay.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Repull reservation ID of the pending request."),
+          idempotency_key: idempotencyKeySchema,
+        },
+      },
+      async ({ id, idempotency_key }) => {
+        try {
+          return jsonText(
+            await client.post(resolvePath(TOOL_PATHS.repull_accept_reservation_request, { id }), {
+              body: {},
+              idempotencyKey: idempotency_key,
+            })
+          );
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("reservations:decline")) {
+    server.registerTool(
+      "repull_decline_reservation_request",
+      {
+        title: "Decline an Airbnb booking request",
+        description:
+          "Decline a pending Airbnb booking request. `message` is sent to the guest with the decline. " +
+          "Confirm with the user first — the guest loses the booking.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Repull reservation ID of the pending request."),
+          reason: z
+            .enum([
+              "dates_not_available",
+              "not_comfortable",
+              "listing_not_ready",
+              "different_dates_needed",
+              "spam",
+              "other",
+            ])
+            .describe("Airbnb's decline reason."),
+          message: z.string().min(1).max(500).describe("Sent to the guest by Airbnb with the decline."),
+          idempotency_key: idempotencyKeySchema,
+        },
+      },
+      async ({ id, reason, message, idempotency_key }) => {
+        try {
+          return jsonText(
+            await client.post(resolvePath(TOOL_PATHS.repull_decline_reservation_request, { id }), {
+              body: { reason, message },
+              idempotencyKey: idempotency_key,
+            })
+          );
         } catch (err) {
           return errorText(err);
         }

@@ -22,10 +22,16 @@ import {
   registerReadTools,
   registerWriteTools,
   WRITE_SCOPE_TOOLS,
+  EXPLICIT_ONLY_WRITE_SCOPES,
   type WriteScope,
 } from "./index.js";
 
 const ALL_WRITE_TOOL_NAMES = Object.values(WRITE_SCOPE_TOOLS).sort();
+/** Scopes the `*` / `all` wildcard enables — everything except the explicit-only ones. */
+const WILDCARD_SCOPES = (Object.keys(WRITE_SCOPE_TOOLS) as WriteScope[])
+  .filter((s) => !EXPLICIT_ONLY_WRITE_SCOPES.has(s))
+  .sort();
+const WILDCARD_TOOL_NAMES = WILDCARD_SCOPES.map((s) => WRITE_SCOPE_TOOLS[s]).sort();
 
 /** A fake McpServer that just records the tool names it was asked to register. */
 function fakeServer(): { server: McpServer; registered: string[] } {
@@ -91,16 +97,38 @@ describe("parseWriteScopes", () => {
     expect(unknown).toEqual(["bogus:thing"]);
   });
 
-  it("'*' enables every write scope", () => {
+  it("'*' enables every write scope except the explicit-only ones", () => {
     const { enabled, unknown } = parseWriteScopes("*");
-    expect([...enabled].sort()).toEqual(Object.keys(WRITE_SCOPE_TOOLS).sort());
+    expect([...enabled].sort()).toEqual(WILDCARD_SCOPES);
     expect(unknown).toEqual([]);
   });
 
-  it("'all' (any case) enables every write scope", () => {
+  it("'all' (any case) enables every write scope except the explicit-only ones", () => {
     const { enabled, unknown } = parseWriteScopes("ALL");
-    expect([...enabled].sort()).toEqual(Object.keys(WRITE_SCOPE_TOOLS).sort());
+    expect([...enabled].sort()).toEqual(WILDCARD_SCOPES);
     expect(unknown).toEqual([]);
+  });
+
+  it("booking-decision scopes are explicit-only: the wildcard never enables them", () => {
+    expect([...EXPLICIT_ONLY_WRITE_SCOPES].sort()).toEqual(
+      [
+        "inquiries:preapprove",
+        "offers:send",
+        "offers:withdraw",
+        "reservations:accept",
+        "reservations:decline",
+      ].sort()
+    );
+    const { enabled } = parseWriteScopes("*");
+    for (const scope of EXPLICIT_ONLY_WRITE_SCOPES) expect(enabled.has(scope)).toBe(false);
+  });
+
+  it("explicit-only scopes are enabled when named, alongside the wildcard", () => {
+    const { enabled, unknown } = parseWriteScopes("all,reservations:accept,offers:send");
+    expect(unknown).toEqual([]);
+    expect(enabled.has("reservations:accept")).toBe(true);
+    expect(enabled.has("offers:send")).toBe(true);
+    expect(enabled.has("reservations:decline")).toBe(false);
   });
 });
 
@@ -130,6 +158,19 @@ describe("registerWriteTools", () => {
     ]);
   });
 
+  it("(b3) each inquiry / booking-request scope registers exactly its own tool", () => {
+    const expected: Record<string, string> = {
+      "inquiries:preapprove": "repull_preapprove_conversation",
+      "offers:send": "repull_send_special_offer",
+      "offers:withdraw": "repull_withdraw_special_offer",
+      "reservations:accept": "repull_accept_reservation_request",
+      "reservations:decline": "repull_decline_reservation_request",
+    };
+    for (const [scope, tool] of Object.entries(expected)) {
+      expect(registerWithScopes(new Set<WriteScope>([scope as WriteScope]))).toEqual([tool]);
+    }
+  });
+
   it("(c) multiple scopes register exactly their tools, nothing more", () => {
     const registered = registerWithScopes(
       new Set<WriteScope>(["reservations:create", "messaging:send"])
@@ -146,22 +187,22 @@ describe("registerWriteTools", () => {
     expect(registered).toEqual([]);
   });
 
-  it("all four scopes together register all four write tools", () => {
+  it("every scope together registers every write tool", () => {
     const registered = registerWithScopes(
       new Set<WriteScope>(Object.keys(WRITE_SCOPE_TOOLS) as WriteScope[])
     );
     expect(registered).toEqual(ALL_WRITE_TOOL_NAMES);
   });
 
-  it("the wildcard parse result registers all four write tools", () => {
+  it("the wildcard parse result registers every non-explicit-only write tool", () => {
     const { enabled } = parseWriteScopes("*");
     const registered = registerWithScopes(enabled);
-    expect(registered).toEqual(ALL_WRITE_TOOL_NAMES);
+    expect(registered).toEqual(WILDCARD_TOOL_NAMES);
   });
 });
 
 describe("registerReadTools", () => {
-  it("never registers any of the four gated write tools, regardless of env", () => {
+  it("never registers any of the gated write tools, regardless of env", () => {
     const { server, registered } = fakeServer();
     registerReadTools(server, fakeClient);
     for (const name of ALL_WRITE_TOOL_NAMES) {
