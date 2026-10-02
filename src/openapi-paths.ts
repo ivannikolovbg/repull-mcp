@@ -76,6 +76,7 @@ export const TOOL_PATHS = {
   repull_list_reservations: "/v1/reservations",
   repull_get_reservation: "/v1/reservations/{id}",
   repull_create_reservation: "/v1/reservations",
+  repull_quote_reservation: "/v1/reservations/quote",
   repull_update_reservation: "/v1/reservations/{id}",
   repull_list_properties: "/v1/properties",
   repull_get_property: "/v1/properties/{id}",

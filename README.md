@@ -139,6 +139,7 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 |---|---|---|
 | `repull_list_reservations` | `GET /v1/reservations` | Cursor-paginated reservation list. Filters: `status`, `platform`, `listing_id`, `check_in_after`, `check_in_before`. |
 | `repull_get_reservation` | `GET /v1/reservations/{id}` | Full reservation detail (guest, dates, pricing, payment, platform fields). |
+| `repull_quote_reservation` | `POST /v1/reservations/quote` | Price a stay and check availability in the PMS that manages the listing, without booking. `available: false` is an answer — read `restrictions`. |
 | `repull_list_properties` | `GET /v1/properties` | Cursor-paginated list of underlying PMS properties; filterable by `provider`. |
 | `repull_get_property` | `GET /v1/properties/{id}` | Full property detail (address, amenities, photos, capacity). |
 | `repull_list_listings` | `GET /v1/listings` | Cursor-paginated list of native Repull listings (the canonical objects you publish to channels). Accepts `include` (`content`, `details`, `thumbnail`). |
@@ -176,7 +177,7 @@ None of these register unless their scope is listed in `REPULL_MCP_ENABLE_WRITES
 
 | Tool | Scope | Maps to | What it does |
 |---|---|---|---|
-| `repull_create_reservation` | `reservations:create` | `POST /v1/reservations` | Book a DIRECT/website/owner reservation on one of the workspace's own properties. Priced by the pricing engine, not the request. Accepts `idempotency_key`. |
+| `repull_create_reservation` | `reservations:create` | `POST /v1/reservations` | Book a direct/website/owner reservation on one of the workspace's own listings. On a PMS listing it is written to the PMS (`adults`, `children`, `totalPrice`, `notes`, `unitId`, `status: tentative`, `sendConfirmationEmail`; read the `pms` block back); otherwise priced by the pricing engine. Accepts `idempotency_key`. |
 | `repull_update_reservation` | `reservations:update` | `PATCH /v1/reservations/{id}` | Change dates, times, guest count, or move a reservation to another property. Accepts `idempotency_key`. |
 | `repull_create_guest` | `guests:create` | `POST /v1/guests` | Create a guest profile, or match an existing one by email/phone/name. Accepts `idempotency_key`. |
 | `repull_send_conversation_message` | `messaging:send` | `POST /v1/conversations/{id}/messages` | Send a message (and/or up to 5 `attachments` by public https URL) to the guest on an existing thread — reaches a real person. Accepts `idempotency_key`. |

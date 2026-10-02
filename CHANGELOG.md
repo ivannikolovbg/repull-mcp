@@ -4,6 +4,27 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.7] - 2026-10-02
+
+### Added
+
+- `repull_quote_reservation` (read, always on) — `POST /v1/reservations/quote`:
+  prices a stay and checks availability in the PMS that manages the listing,
+  without booking anything. `available: false` is an answer; the PMS's reasons
+  are in `restrictions`.
+- `repull_create_reservation` (still behind `reservations:create`) takes the PMS
+  booking fields `adults`, `children`, `totalPrice`, `notes`, `unitId`,
+  `sendConfirmationEmail`, and `status` is now `confirmed` | `tentative`. The
+  response carries a `pms` block saying what the PMS did.
+
+### Changed
+
+- Bundled spec snapshot refreshed from `https://api.repull.dev/openapi.json`:
+  `capabilities.reservations` on listings and connections, connection
+  `action` / `fixUrl`, Smoobu `apiSecret`, new error codes
+  (`pms_not_linked`, `pms_write_unsupported`, …). Reservation, listing and
+  guest ids on reservation write responses are documented as strings.
+
 ## [0.2.6] - 2026-09-22
 
 ### Added

@@ -32,7 +32,7 @@ import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.6";
+const PACKAGE_VERSION = "0.2.7";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -573,6 +573,48 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
     }
   );
 
+  server.registerTool(
+    "repull_quote_reservation",
+    {
+      title: "Quote a reservation in the PMS",
+      description:
+        "Price a stay and check its availability in the PMS that manages the listing, WITHOUT booking " +
+        "anything. Returns `{ available, total, currency, breakdown, restrictions, provider }`. " +
+        "`available: false` is an answer, not an error — the PMS's reasons are in `restrictions` " +
+        "(minimum stay, closed to arrival, taken dates). `available: true` with a `total` is what " +
+        "`repull_create_reservation` would book at when no `totalPrice` is sent. A listing not managed in " +
+        "a PMS answers `422 pms_not_linked`; a PMS without a quote API (Mews, Cloudbeds, iGMS) answers " +
+        "`422 pms_write_unsupported`. `repull_get_listing` → `capabilities.reservations.quote` says " +
+        "whether a listing can be quoted.",
+      inputSchema: {
+        listingId: z.number().int().positive().describe(
+          "Internal Repull listing ID — from `repull_list_listings` or `repull_list_properties`."
+        ),
+        checkIn: z.string().describe("Check-in date, ISO YYYY-MM-DD."),
+        checkOut: z.string().describe("Check-out date, ISO YYYY-MM-DD. Must be after `checkIn`."),
+        adults: z.number().int().min(1).optional().describe("Number of adults."),
+        children: z.number().int().min(0).optional().describe("Number of children."),
+        guestCount: z.number().int().min(1).optional().describe(
+          "Total guests, when you do not split adults and children."
+        ),
+        unitId: z.string().optional().describe(
+          "Quote one unit (`units[].id` on the listing). Omit for the listing as a whole."
+        ),
+      },
+    },
+    async (body) => {
+      try {
+        return jsonText(
+          await client.post(TOOL_PATHS.repull_quote_reservation, {
+            body: compact(body as Record<string, unknown>),
+          })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
   // ---- Properties --------------------------------------------------------
   server.registerTool(
     "repull_list_properties",
@@ -1097,12 +1139,15 @@ export function registerWriteTools(
       {
         title: "Create a reservation",
         description:
-          "Create a DIRECT reservation on one of the workspace's own properties. `platform` is limited " +
-          "to 'direct', 'website' and 'owner' — OTA reservations are owned by the channel and arrive " +
-          "through sync, so they cannot be created here. The stay is priced by the pricing engine, NOT " +
-          "from anything in this request: read `totalPrice` and `currency` back off the response. Pass " +
-          "either an inline `guest` or an existing `guestId`. Pass `idempotency_key` so a retry cannot " +
-          "create a duplicate booking.",
+          "Create a reservation on one of the workspace's own listings. `platform` is limited to " +
+          "'direct', 'website' and 'owner' — OTA reservations are owned by the channel and arrive " +
+          "through sync, so they cannot be created here. On a listing managed in a PMS the booking is " +
+          "written to the PMS: pass `adults`/`children`, `totalPrice` (omit it and the PMS prices the " +
+          "stay — check first with `repull_quote_reservation`), `notes`, `unitId`, `status: 'tentative'` " +
+          "for a hold and `sendConfirmationEmail`, then read the `pms` block on the response. On any other " +
+          "listing the stay is priced by the pricing engine: read `totalPrice` and `currency` back off the " +
+          "response. Pass either an inline `guest` or an existing `guestId`. Pass `idempotency_key` so a " +
+          "retry cannot create a duplicate booking.",
         inputSchema: {
           listingId: z.number().int().positive().describe(
             "Internal Repull property ID — from `repull_list_properties` or `repull_list_listings`."
@@ -1126,8 +1171,22 @@ export function registerWriteTools(
           platform: z.enum(["direct", "website", "owner"]).optional().describe(
             "Booking origin. Defaults to 'direct'. OTA platforms are deliberately not accepted."
           ),
-          status: z.string().optional().describe(
-            "Lifecycle status to open the reservation in. Defaults to confirmed."
+          status: z.enum(["confirmed", "tentative"]).optional().describe(
+            "`confirmed` (default) or `tentative` — an optional hold, where the PMS has one."
+          ),
+          adults: z.number().int().min(1).optional().describe("Number of adults."),
+          children: z.number().int().min(0).optional().describe("Number of children."),
+          totalPrice: z.number().nonnegative().optional().describe(
+            "PMS listings only: the total for the whole stay, in the listing's currency. Honoured where " +
+              "`capabilities.reservations.customPrice` is true; omit it and the PMS prices the stay. " +
+              "Refused on a listing not managed in a PMS."
+          ),
+          notes: z.string().optional().describe("PMS listings only: booking notes stored in the PMS."),
+          unitId: z.string().optional().describe(
+            "PMS listings only: book this unit (`units[].id` on the listing). Refused by PMSs that cannot target a unit."
+          ),
+          sendConfirmationEmail: z.boolean().optional().describe(
+            "PMS listings only: ask the PMS to email the guest its own confirmation, where the PMS supports it."
           ),
           checkInTime: z.string().optional().describe("Check-in time, 24h HH:MM (e.g. '16:00')."),
           checkOutTime: z.string().optional().describe("Check-out time, 24h HH:MM (e.g. '10:00')."),
