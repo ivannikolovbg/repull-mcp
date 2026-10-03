@@ -168,7 +168,7 @@ These kick off OAuth flows or provision sessions — they don't touch a reservat
 |---|---|---|
 | `repull_list_connections` | `GET /v1/connect` | Active PMS/OTA connections with status. |
 | `repull_list_connect_providers` | `GET /v1/connect/providers` | Registry of every channel the user *can* connect — display name, features, required credentials. |
-| `repull_create_connect_session` | `POST /v1/connect/{provider}` | Start a Connect flow for one provider. Airbnb returns a hosted `oauthUrl`. PMS providers accept API-key credentials in the body. Accepts `idempotency_key`. |
+| `repull_create_connect_session` | `POST /v1/connect/{provider}` | Start a Connect flow for one provider. Airbnb returns a hosted `oauthUrl`. PMS providers accept API-key credentials in the body; `track` takes `domain` + `apiKey` + `apiSecret` and is sent to `POST /v1/connect/track/credentials`. Accepts `idempotency_key`. |
 | `repull_create_connect_picker_session` | `POST /v1/connect` | Start a multi-channel picker session. Returns a hosted URL with a UI listing every connectable channel. Accepts `idempotency_key`. |
 
 ### Reservations / guests / messaging (opt-in writes)

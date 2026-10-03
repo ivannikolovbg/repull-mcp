@@ -32,7 +32,7 @@ import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.7";
+const PACKAGE_VERSION = "0.2.8";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -1586,7 +1586,10 @@ export function registerConnectTools(server: McpServer, client: RepullClient): v
       description:
         "Create a Connect session for ONE specific provider. For Airbnb (and other OAuth-based " +
         "channels), returns a hosted `oauthUrl` to redirect the user to. For PMS providers, accepts " +
-        "API-key credentials directly in the request body. This is the safe, read-mostly write surface " +
+        "API-key credentials directly in the request body. For 'track' (TRACK Hospitality Software) pass " +
+        "`domain`, `apiKey` and `apiSecret` (plus the optional Track fields); the call goes to " +
+        "`POST /v1/connect/track/credentials`, which validates the key against Track, stores the connection " +
+        "and queues the first sync. This is the safe, read-mostly write surface " +
         "— no reservations or listings are mutated. For a multi-channel picker UI, use " +
         "`repull_create_connect_picker_session` instead.",
       inputSchema: {
@@ -1602,6 +1605,7 @@ export function registerConnectTools(server: McpServer, client: RepullClient): v
             "lodgify",
             "ownerrez",
             "stayntouch",
+            "track",
           ])
           .describe(
             "Target provider. Use 'airbnb' for OAuth flows; PMS providers expect API-key credentials in the request."
@@ -1624,6 +1628,29 @@ export function registerConnectTools(server: McpServer, client: RepullClient): v
         apiKey: z.string().optional().describe(
           "PMS providers only — the customer's API key for the target PMS."
         ),
+        domain: z.string().optional().describe(
+          "Track only (required) — the Track domain, e.g. `acme.trackhs.com` or just `acme`."
+        ),
+        apiSecret: z.string().optional().describe(
+          "Track only (required) — the API secret paired with `apiKey`."
+        ),
+        keyType: z.enum(["server", "channel"]).optional().describe(
+          "Track only — 'server' (default; Configuration → Company Setup → API Keys, full access) or " +
+            "'channel' (PMS Setup → Distribution Channels, booking only)."
+        ),
+        authMode: z.enum(["hmac", "basic"]).optional().describe(
+          "Track only — how requests to Track are signed. Default 'hmac'; leave it unless Track support said otherwise."
+        ),
+        hmacRealm: z.string().optional().describe("Track only — HMAC realm. Defaults to `Acquia`."),
+        secretIsBase64: z.boolean().optional().describe(
+          "Track only — whether `apiSecret` is base64-encoded, as Track issues it (default true)."
+        ),
+        paymentTypeId: z.number().int().optional().describe(
+          "Track only — the Track payment type that payments recorded through this connection post to."
+        ),
+        moveReasonId: z.number().int().optional().describe(
+          "Track only — the Track move reason used when a reservation moves to another unit. Without it, unit changes are refused."
+        ),
         clientId: z.string().optional().describe(
           "Plumguide only — client ID for the customer's Plumguide partner credentials."
         ),
@@ -1638,6 +1665,31 @@ export function registerConnectTools(server: McpServer, client: RepullClient): v
     async (args) => {
       try {
         const { provider, idempotency_key, ...body } = args;
+        if (provider === "track") {
+          const { domain, apiKey, apiSecret, keyType, authMode, hmacRealm, secretIsBase64, paymentTypeId, moveReasonId } =
+            body;
+          if (!domain || !apiKey || !apiSecret) {
+            return errorText(
+              new Error("Track needs `domain`, `apiKey` and `apiSecret` (a Server Key from Configuration → Company Setup → API Keys).")
+            );
+          }
+          const credentials = compact({
+            domain,
+            apiKey,
+            apiSecret,
+            keyType,
+            authMode,
+            hmacRealm,
+            secretIsBase64,
+            paymentTypeId,
+            moveReasonId,
+          } as Record<string, unknown>);
+          const data = await client.post(TOOL_PATHS.repull_create_connect_session_track, {
+            body: { credentials },
+            idempotencyKey: idempotency_key,
+          });
+          return jsonText(data);
+        }
         const data = await client.post(resolvePath(TOOL_PATHS.repull_create_connect_session, { provider }), {
           body: compact(body as Record<string, unknown>),
           idempotencyKey: idempotency_key,

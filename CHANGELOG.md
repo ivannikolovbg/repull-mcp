@@ -4,6 +4,24 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.8] - 2026-10-03
+
+### Added
+
+- `repull_create_connect_session` accepts `provider: "track"` (TRACK Hospitality
+  Software). Pass `domain`, `apiKey` and `apiSecret`, plus the optional Track
+  fields `keyType` (`server` / `channel`), `authMode` (`hmac` / `basic`),
+  `hmacRealm`, `secretIsBase64`, `paymentTypeId`, `moveReasonId`. The call goes
+  to `POST /v1/connect/track/credentials`, which validates the key against
+  Track, stores the connection and queues the first sync. Missing `domain` /
+  `apiKey` / `apiSecret` is refused before any request is made.
+
+### Changed
+
+- Bundled spec snapshot refreshed from `https://api.repull.dev/openapi.json`
+  (`POST /v1/connect/track/credentials`, `POST /v1/connect/booking-extranet-login/recheck`,
+  `GET /v1/connect/resume`).
+
 ## [0.2.7] - 2026-10-02
 
 ### Added

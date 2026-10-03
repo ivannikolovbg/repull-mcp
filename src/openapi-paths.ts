@@ -108,6 +108,8 @@ export const TOOL_PATHS = {
   repull_list_connections: "/v1/connect",
   repull_list_connect_providers: "/v1/connect/providers",
   repull_create_connect_session: "/v1/connect/{provider}",
+  // Track connects through its credentials endpoint, not POST /v1/connect/{provider}.
+  repull_create_connect_session_track: "/v1/connect/track/credentials",
   repull_create_connect_picker_session: "/v1/connect",
 } as const satisfies Record<string, string>;
 
