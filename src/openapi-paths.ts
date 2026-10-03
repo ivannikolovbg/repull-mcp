@@ -95,6 +95,7 @@ export const TOOL_PATHS = {
   repull_list_guests: "/v1/guests",
   repull_get_guest: "/v1/guests/{id}",
   repull_create_guest: "/v1/guests",
+  repull_update_guest: "/v1/guests/{id}",
   repull_list_conversations: "/v1/conversations",
   repull_list_conversation_messages: "/v1/conversations/{id}/messages",
   repull_send_conversation_message: "/v1/conversations/{id}/messages",

@@ -4,6 +4,30 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.9] - 2026-10-03
+
+### Added
+
+- `repull_update_guest` (write scope `guests:update`, off by default) —
+  `PATCH /v1/guests/{id}`: change a guest's `firstName`, `lastName`, `email`,
+  `phone` or `language`. A guest linked to a connected PMS (Guesty) is changed
+  there first and `pms` on the response names it; Hostaway, which has no guest
+  API, answers `422 pms_write_unsupported`. An empty change is refused before
+  any request is made. Accepts `idempotency_key`.
+- `repull_create_guest` accepts `provider` to also create the guest in a
+  connected PMS; its id there comes back as `pms.externalId`.
+
+### Changed
+
+- `repull_send_conversation_message`: `channel` is a free string. On a
+  conversation a connected PMS relays, it may be the PMS's own module name
+  (Guesty `airbnb2`, `platform`, `email`, `sms`, `whatsapp`, `note`; Hostaway
+  `channel`, `email`, `sms`, `whatsapp`). Guesty and Hostaway refuse
+  attachments with `422 pms_write_unsupported`.
+- Bundled spec snapshot refreshed from `https://api.repull.dev/openapi.json`
+  (`PATCH /v1/guests/{id}`, `capabilities.pms`, PMS review replies and
+  request/pre-approval routing).
+
 ## [0.2.8] - 2026-10-03
 
 ### Added

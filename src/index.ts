@@ -32,7 +32,7 @@ import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.8";
+const PACKAGE_VERSION = "0.2.9";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -126,6 +126,7 @@ export const WRITE_SCOPE_TOOLS = {
   "reservations:create": "repull_create_reservation",
   "reservations:update": "repull_update_reservation",
   "guests:create": "repull_create_guest",
+  "guests:update": "repull_update_guest",
   "messaging:send": "repull_send_conversation_message",
   "inquiries:preapprove": "repull_preapprove_conversation",
   "offers:send": "repull_send_special_offer",
@@ -1273,6 +1274,11 @@ export function registerWriteTools(
           language: z.string().optional().describe("BCP-47 language tag, e.g. 'en-GB'."),
           currency: z.string().length(3).optional().describe("Three-letter currency code, e.g. 'GBP'."),
           isBusinessTraveler: z.boolean().optional().describe("Mark the guest as a business traveller. Defaults to false."),
+          provider: z.string().optional().describe(
+            "Optional connected PMS to create the guest in as well, e.g. 'guesty'. The guest is created in the PMS " +
+              "FIRST and its id there comes back as `pms.externalId`. A PMS whose API cannot create guest profiles " +
+              "(Hostaway) answers 422 pms_write_unsupported and nothing is created — do not retry; tell the user."
+          ),
           idempotency_key: z.string().optional().describe(
             "Optional Idempotency-Key header. Send a unique string per distinct request: the same key replays the stored response for 24 hours; the same key with a CHANGED payload is rejected with 422 idempotency_key_reused. Recommended for production agents."
           ),
@@ -1282,6 +1288,48 @@ export function registerWriteTools(
         try {
           const data = await client.post(TOOL_PATHS.repull_create_guest, {
             body: compact(body as Record<string, unknown>),
+            idempotencyKey: idempotency_key,
+          });
+          return jsonText(data);
+        } catch (err) {
+          return errorText(err);
+        }
+      }
+    );
+  }
+
+  if (enabledScopes.has("guests:update")) {
+    server.registerTool(
+      "repull_update_guest",
+      {
+        title: "Update a guest",
+        description:
+          "Change a guest's first name, last name, email, phone or language. Send only the fields that change " +
+          "(at least one). Email and phone are ADDED as the guest's newest contact; earlier ones are kept. " +
+          "A guest linked to a connected PMS (created with `provider`, or imported from one) is changed in that " +
+          "PMS first, and `pms` on the response lists each PMS written to. A PMS whose API cannot change guest " +
+          "profiles (Hostaway) answers 422 pms_write_unsupported naming it, and nothing is written — do not retry; " +
+          "tell the user to make the change in that PMS. Pass `idempotency_key` so a retry is safe.",
+        inputSchema: {
+          id: z.number().int().positive().describe("Internal Repull guest ID — from `repull_list_guests` / `repull_get_guest`."),
+          firstName: z.string().min(1).optional().describe("New first name."),
+          lastName: z.string().optional().describe("New last name."),
+          email: z.string().email().optional().describe("Email to add as the guest's newest email."),
+          phone: z.string().optional().describe("Phone to add as the guest's newest phone, E.164 preferred."),
+          language: z.string().optional().describe("BCP-47 language tag, e.g. 'en-GB'."),
+          idempotency_key: z.string().optional().describe(
+            "Optional Idempotency-Key header. The same key replays the stored response for 24 hours; the same key with a CHANGED payload is rejected with 422 idempotency_key_reused."
+          ),
+        },
+      },
+      async ({ id, idempotency_key, ...body }) => {
+        const fields = compact(body as Record<string, unknown>);
+        if (Object.keys(fields).length === 0) {
+          return errorText(new Error("Pass at least one of `firstName`, `lastName`, `email`, `phone`, `language`."));
+        }
+        try {
+          const data = await client.patch(resolvePath(TOOL_PATHS.repull_update_guest, { id }), {
+            body: fields,
             idempotencyKey: idempotency_key,
           });
           return jsonText(data);
@@ -1313,8 +1361,13 @@ export function registerWriteTools(
             "The text to send the guest. 1–4000 characters. Required unless `attachments` is present " +
               "(and always required on Booking.com)."
           ),
-          channel: z.enum(["airbnb", "booking", "sms", "email", "website"]).optional().describe(
-            "Force a channel. Omit to send on whichever channel the conversation already uses."
+          channel: z.string().optional().describe(
+            "Force a channel. Omit to send on whichever channel the conversation already uses (the right default). " +
+              "One of airbnb, booking, vrbo, sms, email, website — except on a conversation a connected PMS relays " +
+              "(Guesty, Hostaway), where the message goes through the PMS and `channel` may also be the PMS's own " +
+              "module name (Guesty: airbnb2, platform, email, sms, whatsapp, or note for an internal note the guest does not see; " +
+              "Hostaway: channel, email, sms, whatsapp). " +
+              "A PMS that cannot choose a channel answers 422 pms_write_unsupported."
           ),
           attachments: z
             .array(
@@ -1329,7 +1382,9 @@ export function registerWriteTools(
             .optional()
             .describe(
               "Files to send (1–5). Airbnb: JPEG/PNG/GIF/WebP/MP4/QuickTime, each sent as its own message. " +
-                "Booking.com: JPEG/PNG, `message` required. SMS/email/website chat reject attachments (422)."
+                "Booking.com: JPEG/PNG, `message` required. SMS/email/website chat reject attachments (422). " +
+                "On a conversation a connected PMS relays, files go through the PMS — Guesty and Hostaway cannot " +
+                "send attachments and answer 422 pms_write_unsupported."
             ),
           idempotency_key: z.string().optional().describe(
             "Optional Idempotency-Key header. Send a unique string per distinct message: the same key replays the stored response for 24 hours instead of sending again; the same key with CHANGED text is rejected with 422 idempotency_key_reused."

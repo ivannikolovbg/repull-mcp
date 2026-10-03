@@ -2,7 +2,7 @@
 
 **A Model Context Protocol (MCP) server for the [Repull](https://repull.dev) API.** Lets Claude Desktop, Cursor, Cline, Continue, and any other MCP-compatible client read reservations, properties, listings, guests, and conversations across 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide) — through one API key.
 
-> Read-mostly by default. Out of the box this server exposes read endpoints plus the "start a Connect flow" entry points — nothing that touches a live booking. Nine mutating tools (create/update a reservation, create a guest, send a guest a message, and — named explicitly only — answer Airbnb inquiries and booking requests) exist but are **off unless you opt in**, one scope at a time, via `REPULL_MCP_ENABLE_WRITES`. See [Write tools (opt-in)](#write-tools-opt-in) below. The rest of the mutating surface (cancel, push pricing, webhooks, etc.) still isn't exposed at all.
+> Read-mostly by default. Out of the box this server exposes read endpoints plus the "start a Connect flow" entry points — nothing that touches a live booking. Ten mutating tools (create/update a reservation, create/update a guest, send a guest a message, and — named explicitly only — answer Airbnb inquiries and booking requests) exist but are **off unless you opt in**, one scope at a time, via `REPULL_MCP_ENABLE_WRITES`. See [Write tools (opt-in)](#write-tools-opt-in) below. The rest of the mutating surface (cancel, push pricing, webhooks, etc.) still isn't exposed at all.
 
 ## Why this server is built for agents
 
@@ -179,7 +179,8 @@ None of these register unless their scope is listed in `REPULL_MCP_ENABLE_WRITES
 |---|---|---|---|
 | `repull_create_reservation` | `reservations:create` | `POST /v1/reservations` | Book a direct/website/owner reservation on one of the workspace's own listings. On a PMS listing it is written to the PMS (`adults`, `children`, `totalPrice`, `notes`, `unitId`, `status: tentative`, `sendConfirmationEmail`; read the `pms` block back); otherwise priced by the pricing engine. Accepts `idempotency_key`. |
 | `repull_update_reservation` | `reservations:update` | `PATCH /v1/reservations/{id}` | Change dates, times, guest count, or move a reservation to another property. Accepts `idempotency_key`. |
-| `repull_create_guest` | `guests:create` | `POST /v1/guests` | Create a guest profile, or match an existing one by email/phone/name. Accepts `idempotency_key`. |
+| `repull_create_guest` | `guests:create` | `POST /v1/guests` | Create a guest profile, or match an existing one by email/phone/name. `provider` also creates it in a connected PMS (Guesty). Accepts `idempotency_key`. |
+| `repull_update_guest` | `guests:update` | `PATCH /v1/guests/{id}` | Change a guest's name, email, phone or language. A guest linked to a connected PMS is changed there first; Hostaway answers `422 pms_write_unsupported`. Accepts `idempotency_key`. |
 | `repull_send_conversation_message` | `messaging:send` | `POST /v1/conversations/{id}/messages` | Send a message (and/or up to 5 `attachments` by public https URL) to the guest on an existing thread — reaches a real person. Accepts `idempotency_key`. |
 | `repull_preapprove_conversation` | `inquiries:preapprove` * | `POST /v1/conversations/{id}/pre-approval` | Pre-approve an Airbnb inquiry so the guest can book. Accepts `idempotency_key`. |
 | `repull_send_special_offer` | `offers:send` * | `POST /v1/conversations/{id}/special-offers` | Send a special offer — your own dates and whole-stay total. Accepts `idempotency_key`. |
@@ -246,7 +247,7 @@ For anything unexpected, the `request_id` field is what support will ask for. Em
 
 The Repull API supports a full set of mutations — modify reservations, cancel, push pricing, send guest messages, manage webhooks, etc. We're adding mutating tools to this server one at a time, and every one of them ships **off by default**. An LLM that decides to "tidy up" a reservation calendar on its own is still not a good story — that's exactly why this stays opt-in instead of graduating to always-on once a tool exists.
 
-Nine write tools exist today (table above): `repull_create_reservation`, `repull_update_reservation`, `repull_create_guest`, `repull_send_conversation_message`, plus the explicit-only inquiry/booking-request tools `repull_preapprove_conversation`, `repull_send_special_offer`, `repull_withdraw_special_offer`, `repull_accept_reservation_request`, `repull_decline_reservation_request`. None of them register — they won't even appear in `tools/list` — unless you turn them on.
+Ten write tools exist today (table above): `repull_create_reservation`, `repull_update_reservation`, `repull_create_guest`, `repull_update_guest`, `repull_send_conversation_message`, plus the explicit-only inquiry/booking-request tools `repull_preapprove_conversation`, `repull_send_special_offer`, `repull_withdraw_special_offer`, `repull_accept_reservation_request`, `repull_decline_reservation_request`. None of them register — they won't even appear in `tools/list` — unless you turn them on.
 
 Set `REPULL_MCP_ENABLE_WRITES` to a comma-separated list of `domain:action` scopes:
 
@@ -254,12 +255,12 @@ Set `REPULL_MCP_ENABLE_WRITES` to a comma-separated list of `domain:action` scop
 REPULL_MCP_ENABLE_WRITES=reservations:create,messaging:send
 ```
 
-Valid scopes: `reservations:create`, `reservations:update`, `guests:create`, `messaging:send`, and the explicit-only `inquiries:preapprove`, `offers:send`, `offers:withdraw`, `reservations:accept`, `reservations:decline`. Whitespace and case don't matter (`Reservations:Create` works). `*` or `all` turns on every write scope **except** the explicit-only ones — those answer inquiries and booking requests, so an existing `*` config never picks them up silently; name them alongside the wildcard (`all,reservations:accept`) if you want them. Prefer naming scopes explicitly in anything long-lived. An unrecognised scope is never silently accepted: it's logged as a warning to stderr (naming the scope and the valid list) and enables nothing.
+Valid scopes: `reservations:create`, `reservations:update`, `guests:create`, `guests:update`, `messaging:send`, and the explicit-only `inquiries:preapprove`, `offers:send`, `offers:withdraw`, `reservations:accept`, `reservations:decline`. Whitespace and case don't matter (`Reservations:Create` works). `*` or `all` turns on every write scope **except** the explicit-only ones — those answer inquiries and booking requests, so an existing `*` config never picks them up silently; name them alongside the wildcard (`all,reservations:accept`) if you want them. Prefer naming scopes explicitly in anything long-lived. An unrecognised scope is never silently accepted: it's logged as a warning to stderr (naming the scope and the valid list) and enables nothing.
 
 The server logs what it did at startup — check stderr:
 
 ```
-[@repull/mcp] REPULL_MCP_ENABLE_WRITES not set — server is read-only (35 tools). Set it to a comma-separated list of reservations:create, reservations:update, guests:create, messaging:send, inquiries:preapprove, offers:send, offers:withdraw, reservations:accept, reservations:decline to enable mutating tools.
+[@repull/mcp] REPULL_MCP_ENABLE_WRITES not set — server is read-only (35 tools). Set it to a comma-separated list of reservations:create, reservations:update, guests:create, guests:update, messaging:send, inquiries:preapprove, offers:send, offers:withdraw, reservations:accept, reservations:decline to enable mutating tools.
 [@repull/mcp] connected (base=https://api.repull.dev). 35 tools registered.
 ```
 
