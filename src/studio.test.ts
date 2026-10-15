@@ -182,7 +182,7 @@ describe("studio tools — handlers", () => {
             code: "project_not_found",
             message: "Project not found",
             fix: "Call studio_list_projects to find a valid projectId.",
-            docs_url: "https://app.vanio.ai/docs/studio-projects",
+            docs_url: "https://repull.dev/docs/studio-projects",
           },
         },
         { status: 404 }
@@ -195,7 +195,7 @@ describe("studio tools — handlers", () => {
       status: 404,
       code: "project_not_found",
       fix: "Call studio_list_projects to find a valid projectId.",
-      docsUrl: "https://app.vanio.ai/docs/studio-projects",
+      docsUrl: "https://repull.dev/docs/studio-projects",
     });
 
     // Sanity — confirm the thrown thing is the typed class so consumers get the

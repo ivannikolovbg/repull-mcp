@@ -30,14 +30,13 @@ import { z } from "zod";
 import { createRepullClient, RepullApiError, type RepullClient } from "./client.js";
 import { registerStudioTools } from "./studio.js";
 import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
+import { DOCS_HOME, LLMS_FULL_URL, LLMS_INDEX_URL, filterDocs, parseDocIndex, sectionsForSlug } from "./repull-docs.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.9";
+const PACKAGE_VERSION = "0.2.10";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
-/** Where the public docs API lives. Single-doc reads need the canonical Next host. */
-const DOCS_API_BASE = "https://app.vanio.ai";
 
 function getApiKey(): string {
   const key = process.env.REPULL_API_KEY;
@@ -381,10 +380,10 @@ function registerDiscoveryTools(server: McpServer, userAgent: string): void {
         "Markdown body so you can quote or summarize it.",
       inputSchema: {
         slug: z.string().optional().describe(
-          "Doc slug (e.g. 'quick-start', 'setup-wizard', 'repull-oauth-connect'). Omit to list available docs."
+          "Doc slug — its path under https://repull.dev/docs/ (e.g. 'introduction', 'errors', 'channels/vrbo'). Omit to list available docs."
         ),
         category: z.string().optional().describe(
-          "When listing, filter by category (e.g. 'getting-started', 'integrations', 'features')."
+          "When listing, filter by section (e.g. 'channels', 'pms', or 'general' for top-level pages)."
         ),
         search: z.string().optional().describe(
           "When listing, free-text search across title and excerpt."
@@ -393,46 +392,34 @@ function registerDiscoveryTools(server: McpServer, userAgent: string): void {
     },
     async ({ slug, category, search }) => {
       try {
-        if (slug) {
-          const url = `${DOCS_API_BASE}/api/docs/${encodeURIComponent(slug)}`;
-          const res = await fetch(url, { headers: { Accept: "application/json", "User-Agent": userAgent } });
+        const fetchText = async (url: string, code: string) => {
+          const res = await fetch(url, { headers: { Accept: "text/plain", "User-Agent": userAgent } });
           if (!res.ok) {
+            throw new RepullApiError({ status: res.status, message: `Failed to fetch ${url} (${res.status} ${res.statusText})`, code, docsUrl: DOCS_HOME });
+          }
+          return res.text();
+        };
+        const [index, full] = await Promise.all([
+          fetchText(LLMS_INDEX_URL, "doc_list_failed"),
+          fetchText(LLMS_FULL_URL, "doc_list_failed"),
+        ]);
+        const all = parseDocIndex(index, full);
+        if (slug) {
+          const clean = slug.replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+          const entry = all.find((d) => d.slug === clean);
+          if (!entry) {
             throw new RepullApiError({
-              status: res.status,
-              message: res.status === 404
-                ? `Doc '${slug}' not found. Call repull_get_docs without a slug to see available docs.`
-                : `Failed to fetch doc '${slug}' (${res.status} ${res.statusText})`,
-              code: res.status === 404 ? "doc_not_found" : "doc_fetch_failed",
-              docsUrl: "https://app.vanio.ai/docs",
+              status: 404,
+              message: `Doc '${slug}' not found. Call repull_get_docs without a slug to see available docs.`,
+              code: "doc_not_found",
+              docsUrl: DOCS_HOME,
             });
           }
-          return jsonText(await res.json());
+          const body = sectionsForSlug(full, clean, entry.title).join("\n\n");
+          return jsonText({ ...entry, body: body || entry.excerpt, fullDocsText: LLMS_FULL_URL });
         }
-        const params = new URLSearchParams();
-        if (category) params.set("category", category);
-        if (search) params.set("search", search);
-        const qs = params.toString();
-        const url = `${DOCS_API_BASE}/api/docs${qs ? `?${qs}` : ""}`;
-        const res = await fetch(url, { headers: { Accept: "application/json", "User-Agent": userAgent } });
-        if (!res.ok) {
-          throw new RepullApiError({
-            status: res.status,
-            message: `Failed to list docs (${res.status} ${res.statusText})`,
-            code: "doc_list_failed",
-          });
-        }
-        const data = (await res.json()) as { docs?: Array<Record<string, unknown>> };
-        // Return slim entries — agents don't need the full body for a list call.
-        const docs = (data.docs ?? []).map((d) => ({
-          slug: d.slug,
-          title: d.title,
-          excerpt: d.excerpt,
-          category: d.category,
-          subcategory: d.subcategory,
-          tags: d.tags,
-          updated_at: d.updated_at,
-        }));
-        return jsonText({ total: docs.length, docs });
+        const docs = filterDocs(all, { category, search });
+        return jsonText({ total: docs.length, docs, fullDocsText: LLMS_FULL_URL });
       } catch (err) {
         return errorText(err);
       }

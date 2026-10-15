@@ -4,6 +4,16 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.10] - 2026-10-15
+
+### Changed
+
+- `repull_get_docs` now reads Repull's own docs from repull.dev (`llms.txt` +
+  `llms-full.txt`). The slug is the page's path under `https://repull.dev/docs/`
+  (e.g. `errors`, `channels/vrbo`); a read returns the page URL and the matching
+  sections of the full docs. Listing returns every doc page, filterable by
+  section (`channels`, `pms`, `general`, …) or search text.
+
 ## [0.2.9] - 2026-10-03
 
 ### Added
