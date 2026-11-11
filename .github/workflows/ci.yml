@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
+      - run: npm test
       - name: MCP smoke test (initialize + tools/list)
         env:
           REPULL_API_KEY: sk_test_ci_smoketest
