@@ -22,7 +22,8 @@
     "dev": "tsc --watch -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "spec:refresh": "./scripts/refresh-spec.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

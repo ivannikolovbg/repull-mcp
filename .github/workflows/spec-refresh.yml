@@ -1,0 +1,65 @@
+name: Spec refresh
+
+# Keeps openapi/v1.json in step with https://api.repull.dev/openapi.json.
+#
+# The API gains endpoints and schema fields almost daily from other repos,
+# while this repo can sit untouched for weeks. A manual refresh therefore
+# always loses: the Spec freshness check went red every day. This job pulls
+# the live spec hourly, proves every tool path still exists (npm test asserts
+# TOOL_PATHS against the snapshot), and commits the snapshot to main.
+#
+# If the API removed or renamed a path a tool uses, the tests fail and this
+# job goes red -- that is real drift needing a code change, not a snapshot bump.
+
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: spec-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Pull the live spec
+        run: ./scripts/refresh-spec.sh
+      - name: Detect change
+        id: diff
+        run: |
+          if git diff --quiet -- openapi/v1.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Snapshot already matches the live spec."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.diff.outputs.changed == 'true'
+        with:
+          node-version: "22.x"
+          cache: "npm"
+      - name: Verify tools against the new snapshot
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          npm ci
+          npm run typecheck
+          npm run build
+          npm test
+          python3 scripts/check-spec-freshness.py
+      - name: Commit snapshot
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add openapi/v1.json
+          git commit -m "chore(spec): refresh openapi/v1.json from the live API"
+          git pull --rebase origin main
+          git push origin HEAD:main
