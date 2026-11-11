@@ -1,6 +1,6 @@
 # @repull/mcp
 
-**A Model Context Protocol (MCP) server for the [Repull](https://repull.dev) API.** Lets Claude Desktop, Cursor, Cline, Continue, and any other MCP-compatible client read reservations, properties, listings, guests, and conversations across 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide) — through one API key.
+**A Model Context Protocol (MCP) server for the [Repull](https://repull.dev) API.** Lets Claude Desktop, Cursor, Cline, Continue, and any other MCP-compatible client read reservations, properties, listings, guests, and conversations across Airbnb, Booking.com, Vrbo and more channels, plus 15 PMS platforms — through one API key.
 
 > Read-mostly by default. Out of the box this server exposes read endpoints plus the "start a Connect flow" entry points — nothing that touches a live booking. Ten mutating tools (create/update a reservation, create/update a guest, send a guest a message, and — named explicitly only — answer Airbnb inquiries and booking requests) exist but are **off unless you opt in**, one scope at a time, via `REPULL_MCP_ENABLE_WRITES`. See [Write tools (opt-in)](#write-tools-opt-in) below. The rest of the mutating surface (cancel, push pricing, webhooks, etc.) still isn't exposed at all.
 
@@ -301,13 +301,13 @@ printf '%s\n' \
 
 ## Registry submission copy
 
-This repo is published as `@repull/mcp` on npm and registered with the [official MCP Registry](https://registry.modelcontextprotocol.io) under the namespace `io.github.ivannikolovbg/repull-mcp`. Copy/paste suggestion for awesome-mcp-servers PRs:
+This repo is published as `@repull/mcp` on npm and ships a `server.json` for the [official MCP Registry](https://registry.modelcontextprotocol.io) under the namespace `io.github.ivannikolovbg/repull-mcp`. Copy/paste suggestion for awesome-mcp-servers PRs:
 
-> **[Repull](https://github.com/ivannikolovbg/repull-mcp)** — Agent-friendly read access to vacation-rental reservations, properties, listings, guests, and conversations via the [Repull](https://repull.dev) API. One API key fans out to 50+ PMS platforms and the major OTAs (Airbnb, Booking.com, VRBO, Plumguide). Includes built-in OpenAPI + docs discovery, `whoami` introspection, cursor pagination, idempotency keys, and verbatim error envelopes.
+> **[Repull](https://github.com/ivannikolovbg/repull-mcp)** — Agent-friendly read access to vacation-rental reservations, properties, listings, guests, and conversations via the [Repull](https://repull.dev) API. One API key covers Airbnb, Booking.com, Vrbo and more channels, plus 15 PMS platforms. Includes built-in OpenAPI + docs discovery, `whoami` introspection, cursor pagination, idempotency keys, and verbatim error envelopes.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE). The MCP server is a thin wrapper over the public REST API; the moat lives behind the API, not in the client.
+MIT — see [LICENSE](./LICENSE). The MCP server is a thin wrapper over the public Repull REST API.
 
 ## Links
 
