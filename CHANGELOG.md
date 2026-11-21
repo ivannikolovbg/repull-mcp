@@ -4,6 +4,10 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.13 — 2026-11-21
+
+`repull_get_vrbo_reservation`: a Vrbo booking by its confirmation code as Vrbo shows it, or Vrbo's choices for cancel / change / decline (read-only).
+
 ## [Unreleased]
 
 ## [0.2.12] — 2026-11-21

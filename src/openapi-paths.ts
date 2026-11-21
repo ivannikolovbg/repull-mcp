@@ -95,6 +95,7 @@ export const TOOL_PATHS = {
   repull_list_vrbo_listings: "/v1/channels/vrbo/listings",
   repull_get_vrbo_listing_content: "/v1/channels/vrbo/listings/{id}/content",
   repull_get_vrbo_listing: "/v1/channels/vrbo/listings/{id}",
+  repull_get_vrbo_reservation: "/v1/channels/vrbo/reservations/{code}",
   repull_list_vrbo_listing_descriptions: "/v1/channels/vrbo/listings/{id}/descriptions",
   repull_get_vrbo_listing_details: "/v1/channels/vrbo/listings/{id}/details",
   repull_list_vrbo_listing_photos: "/v1/channels/vrbo/listings/{id}/photos",
