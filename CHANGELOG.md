@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.12] — 2026-11-21
+
+### Changed
+
+- Vrbo read tools use the Airbnb tools' names: `repull_list_vrbo_listing_descriptions` (every language), `repull_get_vrbo_listing_details` and `repull_list_vrbo_listing_permits` replace `repull_get_vrbo_listing_description`, `…_property` and `…_registration`. Vrbo reads answer from Repull's copy (`dataFreshness`).
+
+### Added
+
+- `repull_get_vrbo_listing` (the listing's Vrbo units; `include: 'content'` adds the stored sections) and `repull_list_vrbo_listing_safety_disclosures`.
+
 ## [0.2.11] - 2026-11-21
 
 ### Added
