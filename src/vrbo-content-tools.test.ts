@@ -56,9 +56,10 @@ function captureTools(register: (s: McpServer, c: RepullClient) => void) {
 
 const VRBO_CONTENT_READ_TOOLS = [
   "repull_list_vrbo_listings",
+  "repull_get_vrbo_listing",
   "repull_get_vrbo_listing_content",
-  "repull_get_vrbo_listing_description",
-  "repull_get_vrbo_listing_property",
+  "repull_list_vrbo_listing_descriptions",
+  "repull_get_vrbo_listing_details",
   "repull_list_vrbo_listing_photos",
   "repull_list_vrbo_listing_amenities",
   "repull_list_vrbo_listing_rooms",
@@ -67,7 +68,8 @@ const VRBO_CONTENT_READ_TOOLS = [
   "repull_get_vrbo_listing_cancellation",
   "repull_get_vrbo_listing_fees",
   "repull_get_vrbo_listing_rates",
-  "repull_get_vrbo_listing_registration",
+  "repull_list_vrbo_listing_permits",
+  "repull_list_vrbo_listing_safety_disclosures",
 ] as const;
 
 describe("Vrbo listing content — reads", () => {
@@ -97,9 +99,10 @@ describe("Vrbo listing content — reads", () => {
     }
   });
 
-  it("warns that reading every section is slow", () => {
+  it("says reads come from Repull's copy, on the Airbnb tools' names", () => {
     const { configs } = captureTools(registerReadTools);
-    expect(configs.get("repull_get_vrbo_listing_content")?.description).toMatch(/2\.5 minutes/);
+    expect(configs.get("repull_get_vrbo_listing_content")?.description).toMatch(/Repull's copy/);
+    expect(configs.get("repull_list_vrbo_listing_descriptions")?.description).toMatch(/Airbnb tools/);
   });
 
   it("sends the section path and query each tool is meant to", async () => {
@@ -113,11 +116,11 @@ describe("Vrbo listing content — reads", () => {
     };
 
     expect(
-      await run("repull_get_vrbo_listing_content", { id: "123", sections: "description,fees" })
+      await run("repull_get_vrbo_listing_content", { id: "123", sections: "descriptions,fees" })
     ).toEqual({
       method: "GET",
       path: "/v1/channels/vrbo/listings/123/content",
-      query: { sections: "description,fees" },
+      query: { sections: "descriptions,fees" },
     });
 
     expect(
@@ -143,6 +146,18 @@ describe("Vrbo listing content — reads", () => {
     expect(await run("repull_get_vrbo_listing_house_rules", { id: "123" })).toEqual({
       method: "GET",
       path: "/v1/channels/vrbo/listings/123/house-rules",
+      query: {},
+    });
+
+    expect(await run("repull_get_vrbo_listing", { id: "123", include: "content" })).toEqual({
+      method: "GET",
+      path: "/v1/channels/vrbo/listings/123",
+      query: { include: "content" },
+    });
+
+    expect(await run("repull_list_vrbo_listing_descriptions", { id: "123" })).toEqual({
+      method: "GET",
+      path: "/v1/channels/vrbo/listings/123/descriptions",
       query: {},
     });
 

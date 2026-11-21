@@ -33,7 +33,7 @@ import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 import { DOCS_HOME, LLMS_FULL_URL, LLMS_INDEX_URL, filterDocs, parseDocIndex, sectionsForSlug } from "./repull-docs.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.11";
+const PACKAGE_VERSION = "0.2.12";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -977,12 +977,11 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
     }
   );
 
-  // Vrbo listing content — READ ONLY, same rule as the Airbnb content above.
-  // The API also exposes PUT on every section, POST/DELETE on videos and a push
-  // to an existing Vrbo listing; none of those are tools here.
+  // Vrbo listing content — READ ONLY, same rule as the Airbnb content above, and on the
+  // same names (`descriptions`, `details`, `photos`, `rooms`, `amenities`, `permits`,
+  // `safety-disclosures`). The API also writes every section; none of those are tools here.
   //
-  // Every read goes live to Vrbo (no cache) and Vrbo calls are spaced ~3 s apart
-  // per account, so the descriptions tell the agent what each call costs.
+  // Reads answer from Repull's copy of the listing; the first read of a section reads Vrbo.
   const vrboId = z
     .string()
     .describe(
@@ -997,9 +996,34 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
         "Vrbo unit (the API answers 409 ambiguous_vrbo_unit otherwise)."
     );
   const VRBO_LIVE_NOTE =
-    " Read live from the host's Vrbo account on every call (nothing is cached); Vrbo calls are " +
-    "spaced ~3 s apart per account. Read only the section you need and do not poll. 404 means the " +
-    "listing is not linked to Vrbo.";
+    " Same section names as the Airbnb tools. Answers `{data, dataFreshness}` from Repull's copy " +
+    "of the listing (`dataFreshness.lastSyncedAt` says when it was read from Vrbo); the first " +
+    "read of a section reads Vrbo, a few seconds. 404 means the listing is not linked to Vrbo.";
+
+  server.registerTool(
+    "repull_get_vrbo_listing",
+    {
+      title: "Get a Vrbo listing",
+      description:
+        "The Vrbo units linked to a listing, from Repull's data (no Vrbo call): Vrbo listing number " +
+        "and URL, Vrbo's status (LIVE, hidden…), headline, capacity, rooms, check-in/out, minimum " +
+        "stay, address, rating, and the Vrbo account it is on with its access. `include: 'content'` " +
+        "adds every listing-content section Repull holds.",
+      inputSchema: {
+        id: vrboId,
+        include: z.enum(["content"]).optional().describe("'content': add the stored listing-content sections."),
+      },
+    },
+    async ({ id, include }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_get_vrbo_listing, { id }), { query: compact({ include }) })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
 
   server.registerTool(
     "repull_get_vrbo_listing_content",
@@ -1007,10 +1031,10 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       title: "Get several Vrbo listing sections",
       description:
         "Read several sections of a listing's Vrbo content in one call. `sections` is required: " +
-        "name the ones you need (e.g. 'description,house-rules,fees') or pass 'all'. Each section " +
+        "name the ones you need (e.g. 'descriptions,house-rules,fees') or pass 'all'. Each section " +
         "comes back under its name; a section that fails carries `{error: {code, message}}` while " +
-        "the others still answer. SLOW: 'all' is about 45 Vrbo calls and takes around 2.5 minutes — " +
-        "prefer the single-section tools (`repull_get_vrbo_listing_description`, " +
+        "the others still answer. Sections Repull holds answer at once; the others are read on " +
+        "Vrbo, seconds each — prefer the single-section tools (`repull_list_vrbo_listing_descriptions`, " +
         "`repull_list_vrbo_listing_photos`, …) and name only the sections you need here." +
         VRBO_LIVE_NOTE,
       inputSchema: {
@@ -1019,10 +1043,9 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
           .string()
           .min(1)
           .describe(
-            "Comma-separated sections, or 'all': description, property, story, additional-info, " +
-              "translations, photos, amenities, rooms, location, house-rules, booking-settings, " +
-              "cancellation, fees, pricing, rates, payment-terms, protection, taxes, registration, " +
-              "welcome-guide, videos."
+            "Comma-separated sections, or 'all': descriptions, details, story, additional-info, " +
+              "photos, amenities, rooms, location, house-rules, booking-settings, cancellation, " +
+              "fees, pricing, payment-terms, protection, taxes, permits, checkin-guide, videos."
           ),
         vrboListingNumber,
       },
@@ -1043,48 +1066,47 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
   // One-section reads that take only the listing id (+ optional Vrbo unit).
   const vrboSectionReads: Array<{
     name:
-      | "repull_get_vrbo_listing_description"
-      | "repull_get_vrbo_listing_property"
+      | "repull_list_vrbo_listing_descriptions"
+      | "repull_get_vrbo_listing_details"
       | "repull_list_vrbo_listing_photos"
       | "repull_list_vrbo_listing_rooms"
       | "repull_get_vrbo_listing_house_rules"
       | "repull_get_vrbo_listing_booking_settings"
       | "repull_get_vrbo_listing_cancellation"
       | "repull_get_vrbo_listing_fees"
-      | "repull_get_vrbo_listing_registration";
+      | "repull_list_vrbo_listing_permits"
+      | "repull_list_vrbo_listing_safety_disclosures";
     title: string;
     description: string;
   }> = [
     {
-      name: "repull_get_vrbo_listing_description",
-      title: "Get Vrbo headline and description",
+      name: "repull_list_vrbo_listing_descriptions",
+      title: "List Vrbo headlines and descriptions",
       description:
         "Read the headline (10–80 characters) and description guests see on the listing's Vrbo " +
-        "page. 1 Vrbo call, a few seconds.",
+        "page — in the listing's own language (`primary: true`) and in every language written for " +
+        "it by hand (`locale`), plus the languages a translation can be written in.",
     },
     {
-      name: "repull_get_vrbo_listing_property",
+      name: "repull_get_vrbo_listing_details",
       title: "Get Vrbo property details",
       description:
         "Read what kind of property the listing is on Vrbo: property type (and the types Vrbo " +
-        "offers), internal name, interior size, and the seniors-only and long-term-renter flags. " +
-        "1 Vrbo call, a few seconds.",
+        "offers), internal name, interior size, and the seniors-only and long-term-renter flags.",
     },
     {
       name: "repull_list_vrbo_listing_photos",
       title: "List Vrbo photos",
       description:
         "List the listing's Vrbo photos in display order — id, url, caption, Vrbo's own tags, " +
-        "rank and rooms — plus any photos Vrbo's moderation rejected and why. 2 Vrbo calls, a few " +
-        "seconds.",
+        "rank and rooms — plus any photos Vrbo's moderation rejected and why.",
     },
     {
       name: "repull_list_vrbo_listing_rooms",
       title: "List Vrbo rooms and spaces",
       description:
-        "List the listing's bedrooms, bathrooms, living rooms and other spaces on Vrbo, with the " +
-        "beds and room amenities in each. Use this to answer 'how many beds are in the second " +
-        "bedroom?'. 1 Vrbo call plus 1 per room.",
+        "List the listing's bedrooms, bathrooms, living rooms and offices on Vrbo, with the beds " +
+        "and room amenities in each. Use this to answer 'how many beds are in the second bedroom?'.",
     },
     {
       name: "repull_get_vrbo_listing_house_rules",
@@ -1092,8 +1114,7 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       description:
         "Read the listing's Vrbo house rules: check-in and check-out times, maximum guests and " +
         "adults, minimum age, children (with age bands), pets (count, weight limit), smoking " +
-        "(inside/outside), events (attendee cap), up to 3 custom rules, and the rental agreement. " +
-        "1 Vrbo call, a few seconds.",
+        "(inside/outside), events (attendee cap), up to 3 custom rules, and the rental agreement.",
     },
     {
       name: "repull_get_vrbo_listing_booking_settings",
@@ -1101,16 +1122,14 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       description:
         "Read how the listing books on Vrbo: instant book or quote-and-hold, minimum nights, " +
         "notice needed before arrival, how far ahead guests can book, maximum stay, and access " +
-        "type. For the cancellation policy use `repull_get_vrbo_listing_cancellation`. 2 Vrbo " +
-        "calls, a few seconds.",
+        "type. For the cancellation policy use `repull_get_vrbo_listing_cancellation`.",
     },
     {
       name: "repull_get_vrbo_listing_cancellation",
       title: "Get Vrbo cancellation policy",
       description:
         "Read the listing's Vrbo cancellation policy — one of Vrbo's named policies or custom " +
-        "refund windows — its seasonal overrides, and the named policies Vrbo offers. 1 Vrbo " +
-        "call, a few seconds.",
+        "refund windows — its seasonal overrides, and the named policies Vrbo offers.",
     },
     {
       name: "repull_get_vrbo_listing_fees",
@@ -1118,16 +1137,23 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       description:
         "Read the listing's Vrbo fees: cleaning, pet, extra-guest and custom fees, each with its " +
         "type (per stay or per night) and whether it is taxable. Nightly prices are in " +
-        "`repull_get_vrbo_listing_rates`. 1 Vrbo call, a few seconds.",
+        "`repull_get_vrbo_listing_rates`.",
     },
     {
-      name: "repull_get_vrbo_listing_registration",
-      title: "Get Vrbo registration / licence",
+      name: "repull_list_vrbo_listing_permits",
+      title: "List Vrbo permits / licence",
       description:
         "Read the local registration or licence fields Vrbo asks for in the listing's " +
         "jurisdiction (they differ per city or region), the values on file, and their status. " +
-        "Use this to check whether a short-term-rental registration is filled in on Vrbo. 1 Vrbo " +
-        "call, a few seconds.",
+        "Use this to check whether a short-term-rental registration is filled in on Vrbo.",
+    },
+    {
+      name: "repull_list_vrbo_listing_safety_disclosures",
+      title: "List Vrbo safety disclosures",
+      description:
+        "Read what the listing tells guests about safety on Vrbo: the home-safety (a pool or hot " +
+        "tub without a gate, nearby water, heights) and safety-device (smoke and carbon-monoxide " +
+        "detectors, fire extinguisher, first aid) amenities, field by field.",
     },
   ];
 
@@ -1161,8 +1187,7 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
         "List the amenities the listing declares on Vrbo, across Vrbo's 19 amenity groups (~440 " +
         "fields): each field's id, type, current value, options and the parent it is shown under. " +
         "Use this to answer 'does this place have air conditioning / parking / a crib?'. Costs 1 " +
-        "Vrbo call per group — all 19 take about a minute, so pass `groups` to read only the ones " +
-        "you need." +
+        "Vrbo call per group on a first read, so pass `groups` to read only the ones you need." +
         VRBO_LIVE_NOTE,
       inputSchema: {
         id: vrboId,
