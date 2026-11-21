@@ -33,7 +33,7 @@ import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 import { DOCS_HOME, LLMS_FULL_URL, LLMS_INDEX_URL, filterDocs, parseDocIndex, sectionsForSlug } from "./repull-docs.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.10";
+const PACKAGE_VERSION = "0.2.11";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";

@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-11-21
+
 ### Added
 
 - Vrbo listing-content reads, matching the Airbnb content tools. All are READ
