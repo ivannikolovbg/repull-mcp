@@ -33,7 +33,7 @@ import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 import { DOCS_HOME, LLMS_FULL_URL, LLMS_INDEX_URL, filterDocs, parseDocIndex, sectionsForSlug } from "./repull-docs.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.12";
+const PACKAGE_VERSION = "0.2.13";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -1018,6 +1018,31 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       try {
         return jsonText(
           await client.get(resolvePath(TOOL_PATHS.repull_get_vrbo_listing, { id }), { query: compact({ include }) })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_vrbo_reservation",
+    {
+      title: "Get a Vrbo booking",
+      description:
+        "A Vrbo booking by its confirmation code (HA-…), as Vrbo shows it now: state, dates, party, what " +
+        "the guest pays and the host's payout, the cancellation policy, and what Vrbo allows for it " +
+        "(availableActions). `options: 'cancel' | 'change' | 'decline'` returns Vrbo's choices for that " +
+        "action instead — cancel reasons, the booking's current values and limits, decline reasons. Read-only.",
+      inputSchema: {
+        code: z.string().describe("The Vrbo confirmation code, e.g. HA-C3WBX1."),
+        options: z.enum(["cancel", "change", "decline"]).optional().describe("Return Vrbo's choices for this action instead of the booking."),
+      },
+    },
+    async ({ code, options }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_get_vrbo_reservation, { code }), { query: compact({ options }) })
         );
       } catch (err) {
         return errorText(err);

@@ -161,6 +161,12 @@ describe("Vrbo listing content — reads", () => {
       query: {},
     });
 
+    expect(await run("repull_get_vrbo_reservation", { code: "HA-C3WBX1", options: "cancel" })).toEqual({
+      method: "GET",
+      path: "/v1/channels/vrbo/reservations/HA-C3WBX1",
+      query: { options: "cancel" },
+    });
+
     expect(await run("repull_list_vrbo_listings", { status: "all" })).toEqual({
       method: "GET",
       path: "/v1/channels/vrbo/listings",
@@ -183,10 +189,11 @@ describe("Vrbo listing content — writes stay unexposed", () => {
     const { handlers, calls } = captureTools(register);
 
     const vrboTools = [...handlers.keys()].filter((name) => name.includes("vrbo"));
-    expect([...vrboTools].sort()).toEqual([...VRBO_CONTENT_READ_TOOLS].sort());
+    // The booking read is the one Vrbo tool outside listing content; it reads too.
+    expect([...vrboTools].sort()).toEqual([...VRBO_CONTENT_READ_TOOLS, "repull_get_vrbo_reservation"].sort());
 
     for (const tool of vrboTools) {
-      await handlers.get(tool)!({ id: "1", sections: "all" });
+      await handlers.get(tool)!({ id: "1", code: "HA-C3WBX1", sections: "all" });
     }
     expect(calls.length).toBe(vrboTools.length);
     expect(calls.every((c) => c.method === "GET")).toBe(true);
