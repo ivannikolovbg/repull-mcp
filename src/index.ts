@@ -1151,9 +1151,9 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
       name: "repull_list_vrbo_listing_safety_disclosures",
       title: "List Vrbo safety disclosures",
       description:
-        "Read what the listing tells guests about safety on Vrbo: the home-safety (a pool or hot " +
-        "tub without a gate, nearby water, heights) and safety-device (smoke and carbon-monoxide " +
-        "detectors, fire extinguisher, first aid) amenities, field by field.",
+        "Read what the listing tells guests about safety on Vrbo, field by field: smoke and " +
+        "carbon-monoxide detectors, gas-powered appliances, fire extinguisher, deadbolt lock, " +
+        "exterior lighting, first-aid kit, emergency exit instructions, hospital and police contacts.",
     },
   ];
 
