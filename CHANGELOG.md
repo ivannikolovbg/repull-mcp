@@ -4,6 +4,30 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Vrbo listing-content reads, matching the Airbnb content tools. All are READ
+  ONLY: the API's Vrbo writes (PUT on every section, video add/delete, the push
+  onto an existing Vrbo listing) are not exposed. Each tool takes the Repull
+  listing id (not the Vrbo listing number) and an optional `vrboListingNumber`
+  for a listing linked to more than one Vrbo unit. Every read goes live to Vrbo
+  (no cache, ~3 s between Vrbo calls per account), and each description says
+  what the call costs.
+  - `repull_list_vrbo_listings` — `GET /v1/channels/vrbo/listings`.
+  - `repull_get_vrbo_listing_content` — `GET /v1/channels/vrbo/listings/{id}/content`
+    with a required `sections` (`all` is ~45 Vrbo calls, ~2.5 minutes).
+  - `repull_get_vrbo_listing_description`, `..._property`, `..._house_rules`,
+    `..._booking_settings`, `..._cancellation`, `..._fees`, `..._registration`;
+    `repull_list_vrbo_listing_photos`, `..._rooms`, `..._amenities` (`groups`);
+    `repull_get_vrbo_listing_rates` (`start`/`end`, per-night rate, weekly and
+    monthly discount, minimum stay).
+- Bundled spec snapshot: the 22 new `/v1/channels/vrbo/listings/{id}/…` paths,
+  taken from the Repull API branch `feat/vrbo-content-api` (33b630f) because
+  they are not live yet. Run `scripts/refresh-spec.sh` once they are, before
+  release.
+
 ## [0.2.10] - 2026-10-15
 
 ### Changed

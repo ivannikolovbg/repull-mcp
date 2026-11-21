@@ -153,6 +153,19 @@ This repo ships a root [`.mcp.json`](./.mcp.json) conforming to the [Open Plugin
 | `repull_list_airbnb_listing_descriptions` | `GET /v1/channels/airbnb/listings/{id}/descriptions` | Listing copy, per locale. |
 | `repull_list_airbnb_listing_permits` | `GET /v1/channels/airbnb/listings/{id}/permits` | Regulatory permit/licence questions and the answers on file. |
 | `repull_list_airbnb_listing_safety_disclosures` | `GET /v1/channels/airbnb/listings/{id}/safety-disclosures` | Declared guest-safety disclosures (cameras, noise monitors, hazards). |
+| `repull_list_vrbo_listings` | `GET GET /v1/channels/vrbo/listings` | Vrbo units linked to the workspace's listings — the Repull listing id the Vrbo tools take, next to its Vrbo listing number. |
+| `repull_get_vrbo_listing_content` | `GET GET /v1/channels/vrbo/listings/{id}/content` | Several Vrbo sections in one call; `sections` is required. `all` is ~45 Vrbo calls (~2.5 min) — prefer the one-section tools. |
+| `repull_get_vrbo_listing_description` | `GET GET /v1/channels/vrbo/listings/{id}/description` | Headline and description. |
+| `repull_get_vrbo_listing_property` | `GET GET /v1/channels/vrbo/listings/{id}/property` | Property type, internal name, interior size, seniors-only and long-term-renter flags. |
+| `repull_list_vrbo_listing_photos` | `GET GET /v1/channels/vrbo/listings/{id}/photos` | Photos in order, plus any Vrbo rejected and why. |
+| `repull_list_vrbo_listing_amenities` | `GET GET /v1/channels/vrbo/listings/{id}/amenities` | Vrbo's 19 amenity groups; narrow with `groups` (1 Vrbo call per group). |
+| `repull_list_vrbo_listing_rooms` | `GET GET /v1/channels/vrbo/listings/{id}/rooms` | Bedrooms, bathrooms and other spaces with their beds and room amenities. |
+| `repull_get_vrbo_listing_house_rules` | `GET GET /v1/channels/vrbo/listings/{id}/house-rules` | Check-in/out, guests, children, pets, smoking, events, custom rules, rental agreement. |
+| `repull_get_vrbo_listing_booking_settings` | `GET GET /v1/channels/vrbo/listings/{id}/booking-settings` | Instant book or quote-and-hold, minimum nights, notice, booking window, maximum stay. |
+| `repull_get_vrbo_listing_cancellation` | `GET GET /v1/channels/vrbo/listings/{id}/cancellation` | Cancellation policy, seasonal overrides, and the policies Vrbo offers. |
+| `repull_get_vrbo_listing_fees` | `GET GET /v1/channels/vrbo/listings/{id}/fees` | Cleaning, pet, extra-guest and custom fees. |
+| `repull_get_vrbo_listing_rates` | `GET GET /v1/channels/vrbo/listings/{id}/rates` | Nightly rate, weekly/monthly discount and minimum stay per night over `start`–`end` (default 14 nights). |
+| `repull_get_vrbo_listing_registration` | `GET GET /v1/channels/vrbo/listings/{id}/registration` | Local registration / licence fields and their status. |
 | `repull_list_guests` | `GET /v1/guests` | Cursor-paginated list of guest profiles. |
 | `repull_get_guest` | `GET /v1/guests/{id}` | Single guest profile (contacts, flags, history). |
 | `repull_list_conversations` | `GET /v1/conversations` | Cursor-paginated list of guest message threads across every channel. |
