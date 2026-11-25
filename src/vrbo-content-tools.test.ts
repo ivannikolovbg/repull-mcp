@@ -208,3 +208,14 @@ describe("Vrbo listing content — writes stay unexposed", () => {
     }
   });
 });
+
+describe("Vrbo tools — README", () => {
+  it("lists every Vrbo tool by its current name, and no retired one", async () => {
+    const { readFileSync } = await import("node:fs");
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+    const listed = new Set([...readme.matchAll(/`(repull_[a-z_]*vrbo[a-z_]*)`/g)].map((m) => m[1]));
+    const { handlers } = captureTools(registerReadTools);
+    const registered = [...handlers.keys()].filter((name) => name.includes("vrbo")).sort();
+    expect([...listed].sort()).toEqual(registered);
+  });
+});

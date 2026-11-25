@@ -4,6 +4,10 @@ All notable changes to `@repull/mcp` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.14 — 2026-11-24
+
+tiket.com (read-only, like the Airbnb and Vrbo tools): `repull_list_tiket_properties` (properties, room types, rate plans and mapped listings), `repull_get_tiket_availability` and `repull_get_tiket_listing_pricing` (rates, rooms to sell and restrictions, read live from tiket.com), `repull_list_tiket_reservations` (bookings as tiket.com sent them; card details are never returned). `repull_list_reservations` documents `platform: 'tiket'`; `repull_create_connect_picker_session` documents `allowedProviders: ['tiket']`. Bundled spec refreshed with the tiket.com operations.
+
 ## 0.2.13 — 2026-11-21
 
 `repull_get_vrbo_reservation`: a Vrbo booking by its confirmation code as Vrbo shows it, or Vrbo's choices for cancel / change / decline (read-only).

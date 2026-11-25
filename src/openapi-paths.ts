@@ -92,6 +92,10 @@ export const TOOL_PATHS = {
   repull_list_airbnb_listing_permits: "/v1/channels/airbnb/listings/{id}/permits",
   repull_list_airbnb_listing_safety_disclosures:
     "/v1/channels/airbnb/listings/{id}/safety-disclosures",
+  repull_list_tiket_properties: "/v1/channels/tiket/properties",
+  repull_get_tiket_availability: "/v1/channels/tiket/availability",
+  repull_get_tiket_listing_pricing: "/v1/channels/tiket/listings/{id}/pricing",
+  repull_list_tiket_reservations: "/v1/channels/tiket/reservations",
   repull_list_vrbo_listings: "/v1/channels/vrbo/listings",
   repull_get_vrbo_listing_content: "/v1/channels/vrbo/listings/{id}/content",
   repull_get_vrbo_listing: "/v1/channels/vrbo/listings/{id}",

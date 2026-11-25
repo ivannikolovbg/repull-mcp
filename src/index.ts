@@ -33,7 +33,7 @@ import { resolvePath, TOOL_PATHS } from "./openapi-paths.js";
 import { DOCS_HOME, LLMS_FULL_URL, LLMS_INDEX_URL, filterDocs, parseDocIndex, sectionsForSlug } from "./repull-docs.js";
 
 const PACKAGE_NAME = "@repull/mcp";
-const PACKAGE_VERSION = "0.2.13";
+const PACKAGE_VERSION = "0.2.14";
 
 /** Where the public OpenAPI spec lives. */
 const OPENAPI_URL = "https://api.repull.dev/openapi.json";
@@ -518,7 +518,7 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
           "Filter by reservation status."
         ),
         platform: z.string().optional().describe(
-          "Filter by booking platform (e.g. 'airbnb', 'booking', 'vrbo', 'plumguide', 'direct')."
+          "Filter by booking platform (e.g. 'airbnb', 'booking', 'vrbo', 'tiket', 'plumguide', 'direct')."
         ),
         listing_id: z.string().optional().describe(
           "Filter to a single listing — pass the listing ID returned by `repull_list_listings` or `repull_list_properties`."
@@ -1269,6 +1269,134 @@ export function registerReadTools(server: McpServer, client: RepullClient): void
           await client.get(resolvePath(TOOL_PATHS.repull_get_vrbo_listing_rates, { id }), {
             query: compact({ start, end, vrboListingNumber }),
           })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  // ---- Channel-specific reads (tiket.com) ---------------------------------
+  // READ ONLY, like the Airbnb and Vrbo tools: the rates / availability /
+  // restrictions writes, room mapping, setup and content publishing change what
+  // guests can book and what they pay, so they are not tools.
+  const tiketHotelId = z
+    .string()
+    .describe(
+      "tiket.com Hotel ID (`propertyId` from `repull_list_tiket_properties`)."
+    );
+  server.registerTool(
+    "repull_list_tiket_properties",
+    {
+      title: "List tiket.com properties",
+      description:
+        "List the tiket.com properties connected to this workspace, each with its room types, rate " +
+        "plans and the Repull listing each room type is mapped to (`mappingStatus`: mapped, partial, " +
+        "unmapped), plus `activationStatus` and `priceModel` (Room Based or Occupancy Based). Use it to " +
+        "find the Hotel ID and room type codes the other `repull_*_tiket_*` tools take.",
+      inputSchema: {
+        status: z.enum(["active", "inactive", "all"]).optional().describe(
+          "'active' (default) hides inactive listings, 'inactive' shows only them, 'all' shows both."
+        ),
+      },
+    },
+    async (args) => {
+      try {
+        return jsonText(
+          await client.get(TOOL_PATHS.repull_list_tiket_properties, { query: compact(args) })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_tiket_availability",
+    {
+      title: "Get tiket.com rates, availability and restrictions",
+      description:
+        "Read what tiket.com holds for a property, live from tiket.com, one row per night, room type and " +
+        "rate plan: rooms to sell and booked, price (Room Based) or occupancy prices, children prices, " +
+        "and restrictions (minStay, maxStay, stopSell, closedToArrival/Departure, min/maxAdvanceDays). " +
+        "Default window: today plus 30 days; at most 366 days per call.",
+      inputSchema: {
+        property_id: tiketHotelId,
+        start_date: z.string().optional().describe("First night, YYYY-MM-DD (default today)."),
+        end_date: z.string().optional().describe("Last night, YYYY-MM-DD, inclusive."),
+        number_of_days: z.number().int().min(1).max(366).optional().describe(
+          "Window length when end_date is omitted (default 31)."
+        ),
+        room_type_code: z.string().optional().describe("Only this tiket.com room type."),
+        rate_plan_code: z.string().optional().describe("Only this tiket.com rate plan."),
+      },
+    },
+    async (args) => {
+      try {
+        return jsonText(
+          await client.get(TOOL_PATHS.repull_get_tiket_availability, { query: compact(args) })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_get_tiket_listing_pricing",
+    {
+      title: "Get tiket.com rates for a listing",
+      description:
+        "The same live tiket.com read as `repull_get_tiket_availability`, addressed by Repull listing: " +
+        "the listing's room type and every active rate plan of it. 409 `listing_not_on_tiket` means the " +
+        "listing is not mapped to a tiket.com room; 409 `ambiguous_tiket_mapping` means pass `hotel_id`.",
+      inputSchema: {
+        id: z.string().describe("Repull listing id (numeric string)."),
+        hotel_id: z.string().optional().describe(
+          "tiket.com Hotel ID — only when the listing is mapped on more than one tiket.com property."
+        ),
+        start_date: z.string().optional().describe("First night, YYYY-MM-DD (default today)."),
+        end_date: z.string().optional().describe("Last night, YYYY-MM-DD, inclusive."),
+        number_of_days: z.number().int().min(1).max(366).optional().describe("Default 31."),
+      },
+    },
+    async ({ id, ...query }) => {
+      try {
+        return jsonText(
+          await client.get(resolvePath(TOOL_PATHS.repull_get_tiket_listing_pricing, { id }), {
+            query: compact(query),
+          })
+        );
+      } catch (err) {
+        return errorText(err);
+      }
+    }
+  );
+
+  server.registerTool(
+    "repull_list_tiket_reservations",
+    {
+      title: "List tiket.com reservations as tiket.com sent them",
+      description:
+        "tiket.com's own record of its bookings, newest first, one row per booked room: tiket.com ids, " +
+        "rate plan, meal plan, cancellation policy, what the guest paid, the net amount tiket.com pays the " +
+        "property, how tiket.com pays (`paymentMethod`: Virtual Credit Card or Bank Transfer) and the Repull " +
+        "reservation it became (`reservationId`). A date change arrives from tiket.com as a cancellation " +
+        "plus a new booking (`previousTiketReservationId`). Card details are never returned. For the " +
+        "normalized bookings use `repull_list_reservations` with platform 'tiket'.",
+      inputSchema: {
+        property_id: z.string().optional().describe("tiket.com Hotel ID."),
+        status: z.enum(["confirmed", "cancelled"]).optional(),
+        check_in_from: z.string().optional().describe("Check-in on or after, YYYY-MM-DD."),
+        check_in_to: z.string().optional().describe("Check-in on or before, YYYY-MM-DD."),
+        limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
+        offset: z.number().int().min(0).optional(),
+      },
+    },
+    async (args) => {
+      try {
+        return jsonText(
+          await client.get(TOOL_PATHS.repull_list_tiket_reservations, { query: compact(args) })
         );
       } catch (err) {
         return errorText(err);
@@ -2086,7 +2214,7 @@ export function registerConnectTools(server: McpServer, client: RepullClient): v
           "Optional opaque correlation token. Echoed back unchanged in the response so you can match the session to your own context."
         ),
         allowed_providers: z.array(z.string()).optional().describe(
-          "Optional whitelist of provider IDs the picker should expose (e.g. ['airbnb', 'booking', 'guesty']). Omit to show every channel in the registry."
+          "Optional whitelist of provider IDs the picker should expose (e.g. ['airbnb', 'booking', 'guesty']). Omit to show every channel in the registry. tiket.com connects only through this picker: pass ['tiket'] to open straight on it."
         ),
         idempotency_key: z.string().optional().describe(
           "Optional Idempotency-Key header — pass the same value to safely retry without spawning a duplicate session."
